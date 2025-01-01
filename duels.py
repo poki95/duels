@@ -1,7 +1,8 @@
 import math
 import requests
 import json
-
+import roman
+   
 # given data
 mode_list = ['oa', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'ndb', 'combo', 'tnt', 'sumo', 'bridge', 'pkd', 'boxing', 'arena', 'all'] # mode aliases
 mode_db_list = ['oa', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'potion', 'combo', 'bowspleef', 'sumo', 'bridge', 'parkour_eight', 'boxing', 'duel_arena'] # mode database aliases
@@ -10,12 +11,12 @@ div_list = ['ASCENDED', 'DIVINE', 'CELESTIAL', 'Godlike', 'Grandmaster', 'Legend
 div_req = [100000, 50000, 25000, 10000, 5000, 2000, 1000, 500, 250, 100, 50, 0] # requirements for each division title
 div_step = [10000, 10000, 5000, 3000, 1000, 600, 200, 100, 50, 30, 10, 1] # requirements to go up a level within a division title
 
-api_key = ""						# update every 3 days 
+api_key = ""															# update every 3 days 
 
 
 error = True
 while error == True:
-	ign = str(input('Name: '))												# ask for the player's ign whose stats are going to be checked
+	ign = str(input('Name: '))											# ask for the player's ign whose stats are going to be checked
 	try:															
 		response = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{ign}")
 		uuid = response.json()["id"]
@@ -151,18 +152,18 @@ if mode == 'all':
 
 		mode_index = mode_db_list.index(mode_db)        				# convert the database alias to the mode's full name
 		mode_clean = mode_names[mode_index]
-		#print(f'{mode_clean} wins: {globals()[f'{mode_db}_wins']}')		# print the wins for every mode
+		#print(f'{mode_clean} wins: {globals()[f'{mode_db}_wins']}')	# print the wins for every mode
 	
 	
 	for mode_db in mode_db_list:
 		mode_index = mode_db_list.index(mode_db)        				# convert the database alias to the mode's full name
 		mode_clean = mode_names[mode_index]
-		if mode_db == 'oa':														# overall titles require 2x the wins compared to mode titles
+		if mode_db == 'oa':												# overall titles require 2x the wins compared to mode titles
 			practical_wins = (globals()[f'{mode_db}_wins'])/2											# so divide practical wincount by 2
 		else:
-			practical_wins = globals()[f'{mode_db}_wins']						# use practical wincount 
+			practical_wins = globals()[f'{mode_db}_wins']				# use practical wincount 
 
-		wincount = str(globals()[f'{mode_db}_wins'])[::-1]						# group digits by 3 for readability (e.g. 139,813)
+		wincount = str(globals()[f'{mode_db}_wins'])[::-1]				# group digits by 3 for readability (e.g. 139,813)
 		multiple_of_three = 1
 		wincount_list = []
 		for digit in wincount:
@@ -178,7 +179,7 @@ if mode == 'all':
 			wincount += digit
 
 		div_number = 0
-		for req in div_req:														# choose the right division + division number
+		for req in div_req:												# choose the right division + division number
 			if practical_wins >= req:
 				div = div_list[div_number]
 				surplus = practical_wins - (req - div_step[div_number])
@@ -186,17 +187,18 @@ if mode == 'all':
 				break
 			div_number += 1
 			
-		if div_num > 50:														# make sure ASCENDED L is the maximum division
+		if div_num > 50:												# make sure ASCENDED L is the maximum division
 			div_num = 50	
-		elif div == 'None':														# remove any division number when below Rookie
+		elif div == 'None':												# remove any division number when below Rookie
 			div_num = 1
 			
-		if div_num != 1:														# show the division number when it's not 1
+		if div_num != 1:												# show the division number when it's not 1
+			div_num = roman.toRoman(div_num)
 			if globals()[f'{mode_db}_wins'] == 1:
 					print(f'{mode_clean} {div} {div_num} - {wincount} win')		
 			else:
 					print(f'{mode_clean} {div} {div_num} - {wincount} wins')
-		else:																	# hide the division number when it's 1
+		else:															# hide the division number when it's 1
 			if globals()[f'{mode_db}_wins'] == 1:													
 					print(f'{mode_clean} {div} - {wincount} win')			
 			else:
@@ -299,12 +301,12 @@ else:
 			globals()[f'{mode_db}_wins'] = 0
 	# print(f'{globals()[f'{mode_db}_wins']}')
 	
-	if mode_db == 'oa':														# overall titles require 2x the wins compared to mode titles
-		practical_wins = (globals()[f'{mode_db}_wins'])/2											# so divide practical wincount by 2
+	if mode_db == 'oa':													# overall titles require 2x the wins compared to mode titles
+		practical_wins = (globals()[f'{mode_db}_wins'])/2				# so divide practical wincount by 2
 	else:
-		practical_wins = globals()[f'{mode_db}_wins']						# use practical wincount 
+		practical_wins = globals()[f'{mode_db}_wins']					# use practical wincount 
 
-	wincount = str(globals()[f'{mode_db}_wins'])[::-1]						# group digits by 3 for readability (e.g. 139,813)
+	wincount = str(globals()[f'{mode_db}_wins'])[::-1]					# group digits by 3 for readability (e.g. 139,813)
 	multiple_of_three = 1
 	wincount_list = []
 	for digit in wincount:
@@ -320,7 +322,7 @@ else:
 		wincount += digit
 
 	div_number = 0
-	for req in div_req:														# choose the right division + division number
+	for req in div_req:													# choose the right division + division number
 		if practical_wins >= req:
 			div = div_list[div_number]
 			surplus = practical_wins - (req - div_step[div_number])
@@ -328,18 +330,19 @@ else:
 			break
 		div_number += 1
 		
-	if div_num > 50:														# make sure ASCENDED L is the maximum division
+	if div_num > 50:													# make sure ASCENDED L is the maximum division
 		div_num = 50	
-	elif div == 'None':														# remove any division number when below Rookie
+	elif div == 'None':													# remove any division number when below Rookie
 		div_num = 1
 		
-	if div_num != 1:														# show the division number when it's not 1
+	if div_num != 1:													# show the division number when it's not 1
+		div_num = roman.toRoman(div_num)
 		if globals()[f'{mode_db}_wins'] == 1:
 				print(f'{mode_clean} {div} {div_num} - {wincount} win')		
 		else:
 				print(f'{mode_clean} {div} {div_num} - {wincount} wins')
-	else:																	# hide the division number when it's 1
-		if globals()[f'{mode_db}_wins'] == 1:													
+	else:																# hide the division number when it's 1
+		if globals()[f'{mode_db}_wins'] == 1:												
 				print(f'{mode_clean} {div} - {wincount} win')			
 		else:
 				print(f'{mode_clean} {div} - {wincount} wins')
