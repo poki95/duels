@@ -2,16 +2,17 @@ import math
 import requests
 import json
 import roman
+import csv
    
 # given data
-mode_list = ['oa', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'ndb', 'combo', 'tnt', 'sumo', 'bridge', 'pkd', 'boxing', 'arena', 'all'] # mode aliases
+mode_list = ['oa', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'ndb', 'combo', 'tnt', 'sumo', 'bridge', 'pkd', 'boxing', 'arena', 'all', 'kit'] # mode aliases
 mode_db_list = ['oa', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'potion', 'combo', 'bowspleef', 'sumo', 'bridge', 'parkour_eight', 'boxing', 'duel_arena'] # mode database aliases
 mode_names = ['Overall', 'UHC', 'SkyWars', 'MW', 'Blitz', 'OP', 'Classic', 'Bow', 'NoDebuff', 'Combo', 'TNT', 'Sumo', 'Bridge', 'Parkour', 'Boxing', 'Arena'] # clean mode names
 div_list = ['ASCENDED', 'DIVINE', 'CELESTIAL', 'Godlike', 'Grandmaster', 'Legend', 'Master', 'Diamond', 'Gold', 'Iron', 'Rookie', 'None'] # divisions
 div_req = [100000, 50000, 25000, 10000, 5000, 2000, 1000, 500, 250, 100, 50, 0] # requirements for each division title
 div_step = [10000, 10000, 5000, 3000, 1000, 600, 200, 100, 50, 30, 10, 1] # requirements to go up a level within a division title
 
-api_key = ""															# update every 3 days 
+api_key = "INSERT_API_KEY"						# update every 3 days 
 
 
 error = True
@@ -26,7 +27,7 @@ while error == True:
 		print('Invalid IGN. Try again.')
 	
 
-mode = str(input('Mode: ')).lower()										# ask for mode
+mode = str(input('> ')).lower()											# ask for mode
 
 while mode not in mode_list:											# check that the mode is valid
 	if mode == 'help':
@@ -346,3 +347,12 @@ else:
 				print(f'{mode_clean} {div} - {wincount} win')			
 		else:
 				print(f'{mode_clean} {div} - {wincount} wins')
+
+if mode != 'all':
+	goal = int(input('Goal: '))
+	wph = int(input('Wins per hour: '))
+	win_diff = goal - globals()[f'{mode_db}_wins']
+	eta = win_diff/wph
+	print(f'{ign} will hit their {mode_clean} wins goal in {win_diff} wins, which equates to ~{eta} hours')
+	
+
