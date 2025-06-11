@@ -8,8 +8,8 @@ import roman
 import csv
 
 # Discord bot token and hypixel api key
-TOKEN = 'MTM4MTYwMTc2OTk2NDA0ODM5NA.G_J2WX.v3OMb95bV8ztyct2X9q8HbRPIYjGQmLsOLxC0Y'
-api_key = "ab8bf81e-84c0-471a-b89c-79ff20b991c1"						# update every 3 days 
+TOKEN = ''
+api_key = ""						# update every 3 days 
 
 # Discord bot setup
 intents = discord.Intents.default()
