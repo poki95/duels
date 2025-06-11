@@ -12,7 +12,7 @@ div_list = ['ASCENDED', 'DIVINE', 'CELESTIAL', 'Godlike', 'Grandmaster', 'Legend
 div_req = [100000, 50000, 25000, 10000, 5000, 2000, 1000, 500, 250, 100, 50, 0] # requirements for each division title
 div_step = [10000, 10000, 5000, 3000, 1000, 600, 200, 100, 50, 30, 10, 1] # requirements to go up a level within a division title
 
-api_key = "INSERT_API_KEY"						# update every 3 days 
+api_key = "hypixel_api_key"						# update every 3 days 
 
 
 error = True
@@ -348,11 +348,21 @@ else:
 		else:
 				print(f'{mode_clean} {div} - {wincount} wins')
 
-if mode != 'all':
+submode = str(input('> ')).lower()
+
+if submode == 'eta':
 	goal = int(input('Goal: '))
 	wph = int(input('Wins per hour: '))
 	win_diff = goal - globals()[f'{mode_db}_wins']
 	eta = win_diff/wph
 	print(f'{ign} will hit their {mode_clean} wins goal in {win_diff} wins, which equates to ~{eta} hours')
-	
+elif submode == 'kit':
+	print('This will check for SkyWars Duels ranked kit wins.')
+	kit = str(input('SkyWars Duels ranked kit: ')).lower()
+	try:
+		globals()[f'{kit}_wins'] = data.json()["player"]["stats"]["Duels"][f"{kit}_kit_wins"]
+	except KeyError:  
+		globals()[f'{kit}_wins'] = 0
+print(f'{ign} has {globals()[f'{kit}_wins']} {kit} wins in SkyWars Duels.')
+		
 
