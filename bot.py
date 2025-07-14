@@ -9,6 +9,7 @@ import roman
 import csv
 import time
 import random
+import asyncio
 from re import sub
 from mojang import API
 
@@ -33,12 +34,15 @@ div_list = ['ASCENDED', 'DIVINE', 'CELESTIAL', 'Godlike', 'Grandmaster', 'Legend
 div_req = [100000, 50000, 25000, 10000, 5000, 2000, 1000, 500, 250, 100, 50, 0] # requirements for each division title
 div_step = [10000, 10000, 5000, 3000, 1000, 600, 200, 100, 50, 30, 10, 1] # requirements to go up a level within a division title
 kits_sw = [
-    "pyromancer", "magician", "athlete", "armorer", "champion", "scout", "hound", "paladin", "bowman",
-    "healer", "cactus", "enderman", "knight", "batguy", "frog", "pharaoh", "pro",
-    "ecologist", "grenade", "cannoneer", "golem", "hunter", "farmer", "disco", "slime", "enderchest",
-    "guardian", "snowman", "enchanter", "warlock", "zookeeper", "pig rider", "nether lord", "fisherman",
-    "troll", "energix", "salmon", "end lord", "sloth", "armorsmith", "jester", "princess",
-    "fishmonger", "rookie", "archeologist", "engineer", "pyro", "fallen angel"
+    "default", "scout", "magician", "armorer", "champion", "bowman", "athlete",
+    "blacksmith", "healer", "pyromancer", "hound", "paladin", "armorsmith",
+    "baseball player", "cannoneer", "ecologist", "enchanter", "enderman",
+    "guardian", "hunter", "knight", "pharaoh", "pro", "snowman", "speleologist",
+    "batguy", "disco", "energix", "cactus", "archeologist", "warlock", "frog",
+    "grenade", "engineer", "pig rider", "salmon", "slime", "jester", "zookeeper",
+    "sloth", "enderchest", "farmer", "fisherman", "princess", "pyro", "troll", "rookie",
+	"fallen angel", "thundermeister", "end lord", "fishmonger", "nether lord",
+    "monster trainer", "skeletor", "pyromaniac"
 ]
 kits_blitz = [
     "horsetamer", "ranger", "archer", "astronaut", "troll", "meatmaster", "reaper", "shark",
@@ -62,7 +66,8 @@ max_wins_per_hour = [70, 85, 40, 100, 100, 150, 130, 40, 90, 110, 150, 30, 20, 3
 gph = [70, 85, 40, 95, 85, 150, 120, 40, 75, 80, 160, 30, 12, 30, 60]
 prefix_icons_db = ['STAR', 'FANCY_STAR', 'POINTY_STAR', 'SUN', 'BIOHAZARD', 'FLOWER', 'YIN_AND_YANG', 'SNOWMAN', 'HEART', 'GG', 'SMILEY', 'DIV_RANKING', '']
 prefix_icons = ['✫', '✯', '✵', '☀', '☣', '❀', '☯', '☃', '❤', '**GG**', '^_^', '**#???**', '']
-
+swd_lifetime = ['poki95', 'Monk_Eez', 'MartySnoozeman', 'Lucastevo', 'D3pTTT', 'Scary_J', 'nobuh', 'mutton38', 'ImHomoAf', '1337ALBY']
+running_tasks = {}
 # Functions
 def dataget(ign):														# Load player's Hypixel stats
 	try:															
@@ -249,6 +254,8 @@ async def d(ctx, ign=None, mode='all'):
 		return
 
 	displayname = data["player"]["displayname"]
+	if displayname.count('_') >= 2:
+		displayname = f'`{displayname}`'
 	duels_data = data["player"].get("stats", {}).get("Duels", {})
 	mode_db = mode if mode == 'all' else mode_db_list[mode_list.index(mode.lower())]
 	
@@ -289,7 +296,7 @@ async def d(ctx, ign=None, mode='all'):
 		if mode_db != 'all_modes':			
 			overall_playtime += playtime
 			if mode_db_list_long[mode_db_list.index(mode_db)] in equipped_title:
-				current_title = f'{equipped_icon} {mode_clean} {oa_division if mode_db == 'all_modes' else division}'
+				current_title = f'{equipped_icon} {mode_clean} {oa_division if mode_db == '"all_modes"' else division}'
 			wins_list.append((win_count, f"{format_number(win_count)} {mode_clean} {win_s} - {mode_clean} {division} (~{playtime}h)"))
 
 		else:
@@ -301,14 +308,21 @@ async def d(ctx, ign=None, mode='all'):
 			if 'all_modes' in equipped_title:
 				current_title = f'{equipped_icon} {mode_clean} {oa_division if mode_db == 'all_modes' else division}'
 	sorted_modes = sorted(wins_list, key=lambda x: x[0], reverse=True)
+	if displayname in swd_lifetime:
+		if equipped_icon == '**#???**' and 'SkyWwaars' in current_title:
+			current_title = current_title.replace('**#???**', f"**#{str(swd_lifetime.index(displayname)+1)}**")
+		if displayname == 'poki95':
+			current_title = '**#1** SkyWars ASCENDED II'
 	if mode == 'all':
 		message_lines = [f"{sub(' +', ' ', current_title)} {get_rank(ign, data)}{displayname}\n{format_number(overall_win_count)} Overall {win_s} - {oa_division} (~{round(overall_playtime)}h)"]
 		message_lines.extend(msg for _, msg in sorted_modes)
 		await ctx.send('\n'.join(message_lines))
 	else:
+		WLR = round(win_count/loss_count, 2) if loss_count != 0 else win_count
+		KDR = round(kill_count/death_count, 2) if death_count != 0 else kill_count
 		message = sub(' +', ' ', f"""✫ {mode_clean} {oa_division if mode == 'oa' else division} {get_rank(ign, data)}{displayname} (~{playtime}h)
-		{format_number(win_count)} {win_s} - {format_number(loss_count)} {loss_es} - {round(win_count/loss_count, 2)} WLR
-		{format_number(kill_count)} {kill_s} - {format_number(death_count)} {death_s} - {round(kill_count/death_count, 2)} KDR""")
+		{format_number(win_count)} {win_s} - {format_number(loss_count)} {loss_es} - {WLR} WLR
+		{format_number(kill_count)} {kill_s} - {format_number(death_count)} {death_s} - {KDR} KDR""")
 		await ctx.send(message)
 	print(f'!d {ign} {mode} used in {ctx.guild.name} by {ctx.author.name}')
 	
@@ -512,10 +526,13 @@ async def uuid(ctx, *, args=''):
 
 @bot.command(name='dodge')
 async def dodge(ctx, ign1, amount=7, ign2='poki95'):
-	if ctx.author.name in ['poki95', 'awesomeduy'] and str(ctx.channel) == 'dodging':
+	if str(ctx.channel) == 'dodging':
 		list1 = []
 		list2 = []
-		for x in range(int(amount)):
+		user_id = ctx.author.id
+		running_tasks[user_id] = True
+		x = 0
+		while x < int(amount) and running_tasks[user_id]:
 			game1, mode1, map1 = stalk(ign1)
 			game2, mode2, map2 = stalk(ign2)
 			message1 = f"{mode1} on {map1 if map1 != False else game1}"
@@ -526,12 +543,74 @@ async def dodge(ctx, ign1, amount=7, ign2='poki95'):
 			if message1 == message2:
 				if message1 != list1[(len(list1))-2] or message2 != list2[(len(list2))-2]:
 					await ctx.send(f'DODGE! {ctx.author.mention}')
-			time.sleep(random.randint(7, 10))
-	elif ctx.author.name not in ['poki95', 'awesomeduy']:
-		await ctx.send(f'{ctx.author} not authorized.')
+			x += 1
+			await asyncio.sleep(random.randint(7, 10))
 	else:
-		await ctx.send(f'{ctx.channel} blocked.')
+		await ctx.send(f'Private command.')
 		
 	print(f'Succesfully stalked {ign1} for {int(amount)} iterations')
+
+@bot.command(name='track')
+async def track(ctx, ign='poki95', amount='1', sleepstart=540, sleepstop=600):
+	if str(ctx.channel) == 'tracking':
+		data = dataget(ign)
+		duels_data = data["player"].get("stats", {}).get("Duels", {})
+		user_id = ctx.author.id
+		running_tasks[user_id] = True
+		x = 0
+		while x < int(amount) and running_tasks[user_id]:
+			wins = get_mode_stat('oa', 'wins', duels_data)
+			message = f'{ign} has {wins} wins'
+		#	if wins%100 > 90:
+			await ctx.reply(message)
+			x += 1
+			await asyncio.sleep(random.randint(sleepstart, sleepstop))
+	else:
+		await ctx.send(f'Private command.')
+		
+	print(f'Succesfully tracked {ign} for {int(amount)} iterations')
+checking = {}
+
+@bot.command(name='session')
+async def session(ctx, ign='poki95'):
+	if str(ctx.channel) == 'tracking':
+		data = dataget(ign)
+		duels_data = data["player"].get("stats", {}).get("Duels", {})
+		user_id = ctx.author.id
+		running_tasks[user_id] = True
+		start_wins = get_mode_stat('all_modes', 'wins', duels_data)
+		start_losses = get_mode_stat('all_modes', 'losses', duels_data)
+		await ctx.send(f'current wins: {start_wins}')
+		while running_tasks[user_id]:
+			await asyncio.sleep(300)
+			data = dataget(ign)
+			duels_data = data["player"].get("stats", {}).get("Duels", {})
+			wins = get_mode_stat('all_modes', 'wins', duels_data)
+			losses = get_mode_stat('all_modes', 'losses', duels_data)
+			if losses == start_losses:
+				WLR = (wins - start_wins)
+			else:
+				WLR = (wins - start_wins)/(losses - start_losses)
+			await ctx.reply(f'{wins - start_wins} wins\n{losses - start_losses} losses\n{round(WLR, 2)} WLR')
+				
+	else:
+		await ctx.send(f'Private command.')
+
+@bot.command(name='check')
+async def check(ctx, ign='None', type='wins', mode='all_modes'):
+	data = dataget(ign)
+	duels_data = data["player"].get("stats", {}).get("Duels", {})
+	stat = get_mode_stat(mode, type, duels_data)
+	await ctx.send(f'{ign} has {stat} {type} in {mode}')
+
+@bot.command(name='stop')
+async def stop(ctx):
+	if ctx.author.name in ['poki95', 'awesomeduy']:
+		user_id = ctx.author.id
+		if running_tasks[user_id]:
+			running_tasks[user_id]
+			await ctx.reply(f"Succesfully stopped {ctx.author.name}'s running task.")
+		else:
+			await ctx.reply(f"No tasks to be stopped for {ctx.author.name}.")
 # Run the bot!kit 
 bot.run(TOKEN)
