@@ -10,22 +10,100 @@ import csv
 import time
 import random
 import asyncio
+import sqlite3
 from re import sub
 from mojang import API
 
 # Discord bot token and hypixel api key
 load_dotenv(dotenv_path="keys.env")
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-api_key = os.getenv("HYPIXEL_API_KEY")									# update every 3 days
+temp_api_key = os.getenv("HYPIXEL_API_KEY")									# update every 3 days
 dev_api_key = os.getenv("DEV_HYPIXEL_API_KEY")
-stats_file = 'stats.json'
+
+# Ensure a working Hypixel API key is being used
+api_key = temp_api_key
+
+
+
 
 # Discord bot setup
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# given data
+# SQLite database setup
+conn = sqlite3.connect('database.db')
+cursor = conn.cursor()
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS linked_users (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	discord_name TEXT NOT NULL UNIQUE,
+	discord_id INTEGER NOT NULL UNIQUE,
+	mc_uuid TEXT NOT NULL UNIQUE,
+	timestamp INTEGER NOT NULL
+	)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS players (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	mc_uuid TEXT NOT NULL UNIQUE,
+	rank TEXT,
+	mc_ign TEXT NOT NULL,
+	nwl INTEGER NOT NULL,
+	guild TEXT,
+	timestamp INTEGER NOT NULL
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS modes (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	mode_alias TEXT NOT NULL UNIQUE,
+	mode_db TEXT NOT NULL,
+	mode_clean TEXT,
+	mode_desc TEXT
+)
+''')
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS players_stats (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	mc_uuid TEXT NOT NULL,
+	mode_id INTEGER NOT NULL,
+	wins INTEGER,
+	losses INTEGER,
+	rounds INTEGER,
+	kills INTEGER,
+	deaths INTEGER,
+	cws INTEGER,
+	bws INTEGER,
+	timestamp INTEGER NOT NULL,
+	UNIQUE(mc_uuid, mode_id)
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS kits (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	mode TEXT NOT NULL,
+	kit TEXT NOT NULL
+)
+''')
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS players_kits_stats (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	mc_uuid TEXT NOT NULL,
+	kit_id INTEGER NOT NULL,
+	wins INTEGER,
+	timestamp INTEGER NOT NULL,
+	UNIQUE(mc_uuid, kit_id)
+)
+''')
+conn.commit()
+
+
+# Given data
 mode_list = ['oa', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'ndb', 'combo', 'tnt', 'sumo', 'bridge', 'pkd', 'boxing', 'arena', 'all'] # mode aliases
 mode_db_list = ['all_modes', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'potion', 'combo', 'bowspleef', 'sumo', 'bridge', 'parkour_eight', 'boxing', 'duel_arena'] # mode database aliases
 mode_db_list_long = ['all_modes', 'uhc', 'skywars', 'megawalls', 'blitz', 'op', 'classic', 'bow', 'potion', 'combo', 'tnt_games', 'sumo', 'bridge', 'parkour', 'boxing', 'duel_arena']
@@ -34,16 +112,17 @@ div_list = ['ASCENDED', 'DIVINE', 'CELESTIAL', 'Godlike', 'Grandmaster', 'Legend
 div_req = [100000, 50000, 25000, 10000, 5000, 2000, 1000, 500, 250, 100, 50, 0] # requirements for each division title
 div_step = [10000, 10000, 5000, 3000, 1000, 600, 200, 100, 50, 30, 10, 1] # requirements to go up a level within a division title
 kits_sw = [
-    "default", "scout", "magician", "armorer", "champion", "bowman", "athlete",
-    "blacksmith", "healer", "pyromancer", "hound", "paladin", "armorsmith",
-    "baseball player", "cannoneer", "ecologist", "enchanter", "enderman",
-    "guardian", "hunter", "knight", "pharaoh", "pro", "snowman", "speleologist",
-    "batguy", "disco", "energix", "cactus", "archeologist", "warlock", "frog",
-    "grenade", "engineer", "pig rider", "salmon", "slime", "jester", "zookeeper",
-    "sloth", "enderchest", "farmer", "fisherman", "princess", "pyro", "troll", "rookie",
-	"fallen angel", "thundermeister", "end lord", "fishmonger", "nether lord",
-    "monster trainer", "skeletor", "pyromaniac"
-]
+    "default", "scout", "magician", "armorer", "champion", "bowman", "athlete", # 7
+    "blacksmith", "healer", "pyromancer", "hound", "paladin", "armorsmith", # 6 
+    "baseball player", "cannoneer", "ecologist", "enchanter", "enderman", # 5
+    "guardian", "hunter", "knight", "pharaoh", "pro", "snowman", "speleologist", # 7
+    "batguy", "disco", "energix", "cactus", "archeologist", "warlock", "frog", # 7 
+    "grenade", "engineer", "pig rider", "salmon", "slime", "jester", "zookeeper", # 7
+    "sloth", "enderchest", "farmer", "fisherman", "princess", "pyro", "troll", "rookie", # 8
+ 	"fallen angel", "thundermeister", "end lord", "fishmonger", "nether lord", # 5
+    "monster trainer", "skeletor", "pyromaniac", 'golem', 'cryomancer', 'hellhound', # 6
+	'witch', 'chronobreaker' # 2
+] # total -> 60 i think
 kits_blitz = [
     "horsetamer", "ranger", "archer", "astronaut", "troll", "meatmaster", "reaper", "shark",
     "reddragon", "golem", "jockey", "viking", "speleologist", "donkeytamer", "toxicologist",
@@ -65,12 +144,15 @@ bridge_submodes_ = ['bridge_duel_', 'bridge_doubles_', 'bridge_threes_', 'bridge
 min_wins_per_hour = [40, 75, 25, 80, 80, 100, 70, 20, 60, 80, 100, 20, 10, 20, 60]
 max_wins_per_hour = [70, 85, 40, 100, 100, 150, 130, 40, 90, 110, 150, 30, 20, 30, 60]
 gph = [70, 85, 40, 95, 85, 150, 120, 40, 75, 80, 160, 30, 12, 30, 60]
+duels_gph = [20, 40, 50, 60, 30, 100, 85, 30, 30, 12, 120, 8, 12, 25, 60]
 prefix_icons_db = ['STAR', 'FANCY_STAR', 'POINTY_STAR', 'SUN', 'BIOHAZARD', 'FLOWER', 'YIN_AND_YANG', 'SNOWMAN', 'HEART', 'GG', 'SMILEY', 'DIV_RANKING', '']
 prefix_icons = ['✫', '✯', '✵', '☀', '☣', '❀', '☯', '☃', '❤', '**GG**', '^_^', '**#???**', '']
-swd_lifetime = ['poki95', 'Monk_Eez', 'MartySnoozeman', 'Lucastevo', 'D3pTTT', 'Scary_J', 'nobuh', 'mutton38', 'ImHomoAf', '1337ALBY']
+swd_lifetime = ['poki95', 'Monk_Eez', 'MartySnoozeman', 'Lucastevo', 'D3pTTT', 'Scary_J', 'nobuh', 'mutton38', 'ImHomoAf', 'KissMyL']
 
 # Functions
-def dataget(ign):														# Load player's Hypixel stats
+
+def dataget(ign):
+	global api_key														# Load player's Hypixel stats
 	try:															
 		response = requests.get(f"https://playerdb.co/api/player/minecraft/{ign}")
 		uuid = response.json()["data"]["player"]["id"]
@@ -78,9 +160,45 @@ def dataget(ign):														# Load player's Hypixel stats
 		res = requests.get(url)
 		data = res.json()
 	except KeyError:
-		data = 'Failed to load data for this player.'
+		data = None	
 	return data
-	
+
+def statusget(ign):
+	try:															
+		response = requests.get(f"https://playerdb.co/api/player/minecraft/{ign}")
+		uuid = response.json()["data"]["player"]["id"]
+		url = f"https://api.hypixel.net/status?key={api_key}&uuid={uuid}"
+		res = requests.get(url)
+		status = res.json()
+	except KeyError:
+		status = 'Failed to load status for this player.'
+	return status	
+
+def recentgamesget(ign):
+	try:															
+		response = requests.get(f"https://playerdb.co/api/player/minecraft/{ign}")
+		uuid = response.json()["data"]["player"]["id"]
+		url = f"https://api.hypixel.net/recentgames?key={api_key}&uuid={uuid}"
+		res = requests.get(url)
+		recentgames = res.json()
+	except KeyError:
+		recentgames = 'Failed to load recent games for this player.'
+	return recentgames
+
+def guildget(ign):
+	try:															
+		response = requests.get(f"https://playerdb.co/api/player/minecraft/{ign}")
+		uuid = response.json()["data"]["player"]["id"]
+		url = f"https://api.hypixel.net/guild?key={api_key}&player={uuid}"
+		res = requests.get(url)
+		status = res.json()
+	except KeyError:
+		status = 'Failed to load status for this player.'
+	return status	
+
+def playerdbget(ign):
+	return requests.get(f"https://playerdb.co/api/player/minecraft/{ign}").json()["data"]["player"]
+
 def get_duels_data(data):
 	duels_data = data["player"].get("stats", {}).get("Duels", {})
 	return duels_data
@@ -134,6 +252,18 @@ def get_rank(ign, data):
     else:
         return str()
 
+def get_nwl(ign, data):
+	exp = data["player"]["networkExp"]
+	nwl = round(math.sqrt(exp/1250 + 12.25) - 2.5, 2)
+	return nwl
+
+def get_guild(ign, guild_data):
+	if guild_data["guild"] != None:
+		guild = guild_data["guild"].get("name", None)
+		return guild
+	else:
+		return None
+
 def get_division_info(wins, is_oa=False):
         practical_wins = wins / 2 if is_oa else wins
         for i, req in enumerate(div_req):
@@ -146,28 +276,6 @@ def get_division_info(wins, is_oa=False):
             div_num = 1
         div_num = min(div_num, 50)
         return div, div_num
-
-def statusget(ign):
-	try:															
-		response = requests.get(f"https://playerdb.co/api/player/minecraft/{ign}")
-		uuid = response.json()["data"]["player"]["id"]
-		url = f"https://api.hypixel.net/status?key={api_key}&uuid={uuid}"
-		res = requests.get(url)
-		status = res.json()
-	except KeyError:
-		status = 'Failed to load status for this player.'
-	return status	
-
-def get_recentgames(ign):
-	try:															
-		response = requests.get(f"https://playerdb.co/api/player/minecraft/{ign}")
-		uuid = response.json()["data"]["player"]["id"]
-		url = f"https://api.hypixel.net/recentgames?key={api_key}&uuid={uuid}"
-		res = requests.get(url)
-		recentgames = res.json()
-	except KeyError:
-		recentgames = 'Failed to load recent games for this player.'
-	return recentgames
 
 def get_mode_stat(mode_db, type, duels_data):
 	if mode_db == 'all_modes':
@@ -194,6 +302,16 @@ def get_mode_stat(mode_db, type, duels_data):
 	else:
 		return duels_data.get(f'{mode_db}_duel_{type}', 0)
 
+def get_winstreaks(mode_db, duels_data):
+	if mode_db == 'all_modes':
+		mode = 'overall'
+	elif mode_db == 'duel_arena':
+		mode = 'arena'
+	else:
+		mode = mode_db_list_long[mode_db_list.index(mode_db)]
+	cws, bws = duels_data.get(f'current_{mode}_winstreak', 0), duels_data.get(f'best_{mode}_winstreak', 0)
+	return cws, bws
+
 def get_kit_wins(mode_db, kit, duels_data):
 	wins = duels_data.get(f"{mode_db}_duel_{kit}_kit_wins", 0) + duels_data.get(f"{mode_db}_doubles_{kit}_kit_wins", 0)
 	return wins
@@ -209,12 +327,9 @@ def stalk(ign):
 def ign_based_on_discord_user(display_name, user_name):
 	ign = display_name
 	data = dataget(ign)
-	if data == 'Failed to load data for this player.':
+	if data == None:
 		ign = user_name
 	return ign
-
-def log(command, server, user):
-	return f'{command} used in {server} by {user}'
 
 def get_duels_stats(mode_db, duels_data):
 	win_count = get_mode_stat(mode_db, 'wins', duels_data)
@@ -225,80 +340,342 @@ def get_duels_stats(mode_db, duels_data):
 	kill_s = "kill" if kill_count == 1 else "kills"
 	death_count = get_mode_stat(mode_db, 'deaths', duels_data)
 	death_s = "death" if death_count == 1 else "deaths"
-	return win_count, win_s, loss_count, loss_es, kill_count, kill_s, death_count, death_s
+	games_played = get_mode_stat(mode_db, 'rounds_played', duels_data)
+	cws, bws = get_winstreaks(mode_db, duels_data)
+	return win_count, win_s, loss_count, loss_es, games_played, kill_count, kill_s, death_count, death_s, cws, bws
 
-def get_displayname(ign):
-	return requests.get(f"https://playerdb.co/api/player/minecraft/{ign}").json()["data"]["player"]["username"]
+def get_uuid(ign, playerdb_data):
+	return playerdb_data["id"]
 
-# Bot readiness confirmation
+def get_displayname(ign, playerdb_data):
+	if "username" in playerdb_data:
+		return playerdb_data["username"]
+	elif "displayname" in playerdb_data:
+		return playerdb_data["displayname"]
+	else:
+		return 'Unable to get displayname.'
+
+def link_to(discord_name, discord_id, uuid, playerdb_data):
+	ign = get_displayname(uuid, playerdb_data)
+	timestamp = round(time.mktime(time.localtime()))
+	try:
+		cursor.execute(
+			"INSERT INTO linked_users (discord_name, discord_id, mc_uuid, timestamp) VALUES (?, ?, ?, ?)",
+			(discord_name, discord_id, uuid, timestamp)
+		)
+		conn.commit()
+		return (f"Linked user {discord_name} (ID: {discord_id})\n-> {ign} (UUID: `{uuid}`)")
+	except Exception as e:
+		if str(e) == 'UNIQUE constraint failed: linked_users.mc_uuid':
+			return f'{ign} has already been linked.'
+		elif str(e) == 'UNIQUE constraint failed: linked_users.discord_id':
+			return f'{discord_name} is already linked.'
+		else:
+			return f'Failed: {e}'
+
+def already_linked(discord_id):
+	try:
+		cursor.execute(f"SELECT mc_uuid FROM linked_users WHERE discord_id = {discord_id}")
+		uuid = cursor.fetchone()[0]
+		playerdb_data = playerdbget(uuid)
+		user = get_displayname(uuid, playerdb_data)
+		return f"User already linked to `{user}`."
+	except Exception as e:
+		if str(e) == "'NoneType' object is not subscriptable":
+			return f"User not currently linked. Use `!link <ign>` to link."
+		else:
+			return e
+
+def unlink_from(discord_id):
+	try:
+		cursor.execute(f'''
+			SELECT mc_uuid
+			FROM linked_users
+			WHERE discord_id = {discord_id}
+		''')
+		uuid = cursor.fetchone()[0]
+		cursor.execute(f'''
+			DELETE FROM linked_users
+			WHERE discord_id = {discord_id}
+		''')
+		conn.commit()
+		return f"Unlinked user from `{uuid}`"
+	except Exception as e:
+		if str(e) == "'NoneType' object is not subscriptable":
+			return f"User not currently linked."
+		else:
+			raise e
+
+def ign_not_given(discord_id, display_name, user_name):
+	try:
+		cursor.execute(f"SELECT mc_uuid FROM linked_users WHERE discord_id = {discord_id}")
+		uuid = cursor.fetchone()[0]
+		playerdb_data = playerdbget(uuid)
+		ign = get_displayname(str(uuid), playerdb_data)
+		return ign
+	except Exception as e:
+		if str(e) == "'NoneType' object is not subscriptable":
+			ign = ign_based_on_discord_user(display_name, user_name)
+			return ign
+		else:
+			raise e
+
+def add_player(uuid, data):
+	playerdb_data = playerdbget(uuid)
+	mc_ign = get_displayname(uuid, playerdb_data)
+	guild_data = guildget(mc_ign)
+	rank = get_rank(mc_ign, data)
+	nwl = get_nwl(mc_ign, data)
+	guild = get_guild(mc_ign, guild_data)
+	timestamp = round(time.mktime(time.localtime()))
+	try:
+		cursor.execute(
+			"INSERT INTO players (mc_uuid, rank, mc_ign, nwl, guild, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+			(uuid, rank, mc_ign, nwl, guild, timestamp)
+		)
+		conn.commit()
+		print(f"Added {mc_ign} ({uuid}) to the players table")
+	except Exception as e:
+		if str(e) == 'UNIQUE constraint failed: players.mc_uuid':
+			cursor.execute(f'''
+				UPDATE players
+				SET
+					rank = ?,
+					mc_ign = ?,
+					nwl = ?,
+					guild = ?,
+					timestamp = ?
+				WHERE mc_uuid = ?
+			''', (rank, mc_ign, nwl, guild, timestamp, uuid))
+			conn.commit()
+		else:
+			print(f'Add player failed. Reason: {e}')
+
+def update_mode_stats(uuid, mode_db, wins, losses, rounds_played, kills, deaths, cws, bws):
+	if mode_db not in mode_db_list:
+		print(f"Invalid mode: '{mode_db}'")
+		return
+	mode_id = mode_db_list.index(mode_db) + 1
+	mode_alias = mode_list[mode_db_list.index(mode_db)]
+	timestamp = round(time.mktime(time.localtime()))
+	try:
+		cursor.execute(
+			"INSERT INTO players_stats (mc_uuid, mode_id, wins, losses, rounds, kills, deaths, cws, bws, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			(uuid, mode_id, wins, losses, rounds_played, kills, deaths, cws, bws, timestamp)
+		)
+		conn.commit()
+	except Exception as e:
+		if str(e) == 'UNIQUE constraint failed: players_stats.mc_uuid, players_stats.mode_id':
+			cursor.execute(f'''
+			UPDATE players_stats
+			SET
+				wins = ?,
+				losses = ?,
+				rounds = ?,
+				kills = ?,
+				deaths = ?,
+				cws = ?,
+				bws = ?,
+				timestamp = ?
+			WHERE mode_id = ? AND mc_uuid = ?
+			''', (wins, losses, rounds_played, kills, deaths, cws, bws, timestamp, mode_id, uuid))
+			conn.commit()
+		else:
+			print(f'Update mode stats failed. Reason: {e}')
+
+def update_kit_stats(uuid, kit, kit_wins):
+	if kit not in kits:
+		print(f"Invalid kit: '{kit}'")
+		return
+	kit_id = kits.index(kit) + 1
+	timestamp = round(time.mktime(time.localtime()))
+	try:
+		cursor.execute(
+			"INSERT INTO players_kits_stats (mc_uuid, kit_id, wins, timestamp) VALUES (?, ?, ?, ?)",
+			(uuid, kit_id, kit_wins, timestamp)
+		)
+		conn.commit()
+	except Exception as e:
+		if str(e) == 'UNIQUE constraint failed: players_kits_stats.mc_uuid, players_kits_stats.kit_id':
+			cursor.execute(f'''
+			UPDATE players_kits_stats
+			SET
+				wins = ?,
+				timestamp = ?
+			WHERE kit_id = ? AND mc_uuid = ?
+			''', (kit_wins, timestamp, kit_id, uuid))
+			conn.commit()
+		else:
+			print(f'Update kit stats failed. Reason: {e}')	
+
+
+# Is bot ready?
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
+	
+# Logging setup
+commands_logs = 'commands_logs.json'
+if not os.path.exists(commands_logs):
+    with open(commands_logs, "w") as f:
+        json.dump([], f)
+
+@bot.event
+async def on_message(message):
+	if str(message.content)[0] == '!':
+		the_time = time.strftime("%X %x", time.localtime())
+		if message.author.bot:
+			await bot.process_commands(message)
+			command_log = f"[{the_time}] [Bot Triggered] {message.author.name} in {message.author.guild}: {message.content}"
+		else:
+			await bot.process_commands(message)
+			command_log = f"[{the_time}] [User Triggered] {message.author.name} in {message.author.guild}: {message.content}"
+		with open(commands_logs, "r+") as f:
+			data = json.load(f)
+			data.append(command_log)
+			f.seek(0)
+			json.dump(data, f, indent=4)	
+
+
+# Ignore invalid commands
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    raise error
 
 # Bot commands
 @bot.command(name='ping')
 async def ping(ctx, amount=1):
 	for a in range(amount):
-		await ctx.reply(f'Pong! 🏓')
-    
+		await ctx.reply(f'Pong! 🏓\n<t:{round(time.mktime(time.localtime()))}:T>')
+
 @bot.command(name='h')
-async def h(ctx):
-	await ctx.send(f"""
-# **Poki's Stats Checker** <:avatar:1382441832809500792>
+async def h(ctx, argument=None):
+	if argument == None:
+		await ctx.send(f"""
+	# **Poki's Stats Checker** <:avatar:1382441832809500792>
 
-- `!d <ign>` — Check wins, division title and estimated playtime for a player in all duels modes.
-  -> `!d MCreeperWL`
+	## Available commands:
 
-- `!d <ign> <mode>` — Check wins, division title and estimated playtime for a player in a specific duels mode.
-  -> `!d Sothey boxing`
+	- !d -> Duels Stats (!h duels)
+	- !kit -> Kit Stats (!h kit)
+	- !s -> Player Status (!h status)
+	- !tlb -> Current Leaderboards (!h lb)
+	- !link -> Link Account (!h link)
+		
+		
+	For any issues, contact **`poki95`** on Discord.
+	""")
+	elif argument in ['d', 'duel', 'duels']:
+		await ctx.send(f"""
+Check a player's wins, division title, and estimated playtime.
 
-- `!kit <ign>` — Check all player's kits' wins in a specific mode.
-  -> `!kit Kronosaurus`
+### !d <ign> -> Shows stats for all Duels modes.
+        -> !d MCreeperWL
 
-- `!kit <ign> <kit> <mode>` — Check player's kit's wins in MegaWalls, SkyWars or Blitz Duels.
-  -> `!kit poki95 pyromancer sw`
+### !d <ign> <mode> -> Shows more specific stats for a specific mode.
+        -> !d Sothey boxing
+		
+	For any issues, contact **`poki95`** on Discord.
+	""")
+	elif argument in ['k', 'kit', 'kits']:
+		await ctx.send(f"""
+Check a player's kit wins for a specific mode.
 
-- `!s <ign>` — Check player's status.
-  -> `!s poki95`
+### !kit <ign> <mode> -> Shows all kit wins for a specific mode.
+        -> !kit sockatoo
 
-- `!uuid <ign>` — Check player's UUID.
-  -> `!uuid poki95`
+### !d <ign> <mode> <kit> -> Shows kit wins for a specific mode.
+        -> !kit poki95 pyromancer
+		
+	For any issues, contact **`poki95`** on Discord.
+	""")
+	elif argument in ['s', 'status']:
+		await ctx.send(f"""
+Check a player's Status on Hypixel.
 
-- `!tlb <weekly/monthly>` - Check current Overall Weekly/Monthly duels leaderboard.
-  -> `!tlb monthly`
-	
-For any issues, contact **`poki95`** on Discord.
-""")
-	print(f'!h used in {ctx.guild.name} by {ctx.author.name}')
+### !s <ign> -> Shows the player's status and recent games.
+        -> !s mutton38
+		
+	For any issues, contact **`poki95`** on Discord.
+	""")
+	elif argument in ['lb', 'leaderboard']:
+		await ctx.send(f"""
+Check various leaderboards on Hypixel.
 
+### !tlb <weekly/monthly> -> Shows the current Weekly/Monthly Duels Leaderboard.
+        -> !tlb weekly
+
+### !klb <mode> <kit> -> Coming soon!
+		
+		
+	For any issues, contact **`poki95`** on Discord.
+	""")
+	elif argument in ['link', 'unlink']:
+		await ctx.send(f"""
+Link your Discord account to your Minecraft account for easier stats checking.
+
+### !link <ign> -> Links your Discord account to your Minecraft account.
+        -> !link {ctx.author.name}
+
+### !unlink -> Unlinks your Discord account to your Minecraft account.
+		-> !unlink
+		
+	For any issues, contact **`poki95`** on Discord.
+	""")
+	elif argument in ['u', 'update']:
+		if ctx.author.name == 'poki95':
+			await ctx.send('''
+			# New update dropped! <:avatar:1382441832809500792>
+
+## New command
+
+- `!link` -> Link your Discord account with your Minecraft account for faster stats checking!
+## Existing commands changes
+
+- `!h` -> New and enhanced help menu!
+
+- `!kit` -> 4 missing kits have been added + bug fixes!
+
+- `!d` -> Improvements:
+-- /duels games are now included in playtime estimates
+-- Current and Best Winstreaks will now be shown
+-- 'Ghost games' count is shown (games played that don't count as a win or a loss)
+-- Bug fixes
+
+Feedback is more than welcome! Contact `poki95` on Discord.
+		
+		
+			''')
+		else:
+			await ctx.send("Unauthorized.")
 @bot.command(name='d')
 async def d(ctx, ign=None, mode='all'):
 	if ign == None:
-		ign = ign_based_on_discord_user(ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
 			
 	if ign.lower() in mode_list:
 		mode = ign
-		ign = ctx.author.display_name
-		data = dataget(ign)
-		if data == 'Failed to load data for this player.':
-			ign = ctx.author.name
+		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
 			
 	data = dataget(ign)
 
-	if "player" not in data:
-		if str(data) == "{'success': False, 'cause': 'Invalid API key'}":
-			api_key = os.getenv("HYPIXEL_API_KEY")	
-		else:
-			await ctx.send('Invalid IGN.')
+	if data == None:
+		await ctx.send('Invalid IGN.')
 		return
 
 	if mode.lower() not in mode_list:
 		await ctx.send(f'`{mode}` is not an available mode. Type `!h` for help.')
 		return
+	
+	playerdb_data = playerdbget(ign)
+	displayname = get_displayname(ign, playerdb_data)
+	uuid = get_uuid(ign, playerdb_data)
 
-	displayname = get_displayname(ign)
-
-	if displayname.count('_') >= 2:
+	add_player(uuid, data)
+	
+	if displayname.count('_') >= 2 and displayname.count('__') != 1:
 		displayname = f'`{displayname}`'
 
 	duels_data = get_duels_data(data)
@@ -319,15 +696,16 @@ async def d(ctx, ign=None, mode='all'):
 	wins_list = []
 	overall_playtime = 0
 	for mode_db in modes:
-		win_count, win_s, loss_count, loss_es, kill_count, kill_s, death_count, death_s = get_duels_stats(mode_db, duels_data)
-		is_oa = (mode_db == 'oa')
+		win_count, win_s, loss_count, loss_es, games_played, kill_count, kill_s, death_count, death_s, cws, bws = get_duels_stats(mode_db, duels_data)
+
+		update_mode_stats(uuid, mode_db, win_count, loss_count, games_played, kill_count, death_count, cws, bws) # UPDATE MODE STATS IN DB
+
+		is_oa = (mode_db == 'oa') 
 		div, div_num = get_division_info(win_count, is_oa)	
 		division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
-
-		if ign.lower() == 'allsharkboy' and mode_db == 'bow':
-			playtime = 100
-		else:
-			playtime = round((win_count + loss_count)/gph[mode_db_list.index(mode_db)-1], 1)
+		random_q_playtime = (win_count + loss_count)/gph[mode_db_list.index(mode_db)-1]
+		ghost_games_playtime = (games_played - win_count - loss_count)/duels_gph[mode_db_list.index(mode_db)-1]
+		playtime = round(random_q_playtime + ghost_games_playtime, 1)
 
 		mode_clean = mode_names[mode_db_list.index(mode_db)]
 		if mode_db != 'all_modes':			
@@ -340,61 +718,62 @@ async def d(ctx, ign=None, mode='all'):
 			overall_win_count = get_mode_stat(mode_db, 'wins', duels_data)
 			div, div_num = get_division_info(win_count, True)	
 			oa_division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
-			win_s = "win" if win_count == 1 else "wins"
 			mode_clean = mode_names[mode_db_list.index(mode_db)]
 			if 'all_modes' in equipped_title:
 				current_title = f'{equipped_icon} {mode_clean} {oa_division if mode_db == 'all_modes' else division}'
-	sorted_modes = sorted(wins_list, key=lambda x: x[0], reverse=True)
-	if displayname in swd_lifetime:
-		if equipped_icon == '**#???**' and 'SkyWwaars' in current_title:
-			current_title = current_title.replace('**#???**', f"**#{str(swd_lifetime.index(displayname)+1)}**")
-		if displayname == 'poki95':
-			current_title = '**#1** SkyWars ASCENDED II'
-	if mode == 'all':
+		sorted_modes = sorted(wins_list, key=lambda x: x[0], reverse=True)
+		if displayname in swd_lifetime:
+			if equipped_icon == '**#???**' and 'SkyWars' in current_title:
+				current_title = current_title.replace('**#???**', f"**#{str(swd_lifetime.index(displayname)+1)}**")
+			if displayname == 'poki95':
+				current_title = '**#1** SkyWars ASCENDED II'
+		
+	if mode == 'all':		
 		message_lines = [f"{sub(' +', ' ', current_title)} {get_rank(ign, data)}{displayname}\n{format_number(overall_win_count)} Overall {win_s} - {oa_division} (~{round(overall_playtime)}h)"]
 		message_lines.extend(msg for _, msg in sorted_modes)
 		await ctx.send('\n'.join(message_lines))
+
 	else:
-		mode_db = mode if mode == 'all' else mode_db_list[mode_list.index(mode.lower())]
-		win_count, win_s, loss_count, loss_es, kill_count, kill_s, death_count, death_s = get_duels_stats(mode_db, duels_data)
+		mode_db = mode_db_list[mode_list.index(mode.lower())]
+		win_count, win_s, loss_count, loss_es, games_played, kill_count, kill_s, death_count, death_s, cws, bws = get_duels_stats(mode_db, duels_data)
+
+		update_mode_stats(uuid, mode_db, win_count, loss_count, games_played, kill_count, death_count, cws, bws) # UPDATE MODE STATS IN DB
+		
 		is_oa = (mode_db == 'oa')
 		div, div_num = get_division_info(win_count, is_oa)	
 		division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
 		mode_clean = mode_names[mode_db_list.index(mode_db)]
-		playtime = round((win_count + loss_count)/gph[mode_db_list.index(mode_db)-1], 1)
+		random_q_playtime = (win_count + loss_count)/gph[mode_db_list.index(mode_db)-1]
+		ghost_games = games_played - (win_count + loss_count)
+		ghost_games_playtime = (ghost_games)/duels_gph[mode_db_list.index(mode_db)-1]
+		playtime = round(random_q_playtime + ghost_games_playtime, 1)
 		WLR = round(win_count/loss_count, 2) if loss_count != 0 else win_count
 		KDR = round(kill_count/death_count, 2) if death_count != 0 else kill_count
 		if mode in ['pkd', 'tnt', 'boxing']:
 			message = sub(' +', ' ', f"""✫ {mode_clean} {oa_division if mode == 'oa' else division} {get_rank(ign, data)}{displayname} (~{playtime}h)
-			{format_number(win_count)} {win_s} - {format_number(loss_count)} {loss_es} - {WLR} WLR""")			
-		else:
-			message = sub(' +', ' ', f"""✫ {mode_clean} {oa_division if mode == 'oa' else division} {get_rank(ign, data)}{displayname} (~{playtime if mode != 'oa' else overall_playtime}h)
 			{format_number(win_count)} {win_s} - {format_number(loss_count)} {loss_es} - {WLR} WLR
-			{format_number(kill_count)} {kill_s} - {format_number(death_count)} {death_s} - {KDR} KDR""")
+			{format_number(ghost_games)} ghost games - {cws} CWS - {bws} BWS""")
+		else:
+			message = sub(' +', ' ', f"""✫ {mode_clean} {oa_division if mode == 'oa' else division} {get_rank(ign, data)}{displayname} (~{playtime if mode != 'oa' else round(overall_playtime, 1)}h)
+			{format_number(win_count)} {win_s} - {format_number(loss_count)} {loss_es} - {WLR} WLR
+			{format_number(kill_count)} {kill_s} - {format_number(death_count)} {death_s} - {KDR} KDR
+			{format_number(ghost_games)} ghost games - {cws} CWS - {bws} BWS""")
 		await ctx.send(message)
-	print(log(ctx.message.content, ctx.guild.name, ctx.author.name))
-	# print(f'!d {ign} {mode} used in {ctx.guild.name} by {ctx.author.name}')
-	
+
 @bot.command(name='kit')
 async def kit(ctx, ign=None, mode='sw', kit='top10'):
 	if ign == None:
-		ign = ign_based_on_discord_user(ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
 	elif ign.lower() in kits:
 		kit = ign.lower()
-		ign = ctx.author.display_name
-		data = dataget(ign)
-		if data == 'Failed to load data for this player.':
-			ign = ctx.author.name
+		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
 	elif ign.lower() in ['sw', 'blitz', 'mw']:
 		mode = ign
-		ign = ctx.author.display_name
-		data = dataget(ign)
-		if data == 'Failed to load data for this player.':
-			ign = ctx.author.name
+		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
 
 	data = dataget(ign)
 
-	if data == 'Failed to load data for this player.':
+	if data == None:
 		await ctx.send('Invalid IGN.')
 		return
 
@@ -410,7 +789,12 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 		else:
 			kit, mode = mode, 'sw'
 
-	displayname = get_displayname(ign)
+	playerdb_data = playerdbget(ign)
+	displayname = get_displayname(ign, playerdb_data)
+	uuid = get_uuid(ign, playerdb_data)
+
+	add_player(uuid, data)
+
 	duels_data = get_duels_data(data)
 
 	if mode.lower() == 'sw':
@@ -420,6 +804,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			kit_wins_list = []
 			for swd_kit in kits_sw:
 				wins = get_kit_wins('sw', swd_kit, duels_data)
+				update_kit_stats(uuid, swd_kit, wins)
 				if wins > 0:
 					win_s = "win" if wins == 1 else "wins"
 					percentage = round((wins/sw_wins)*100, 2) if sw_wins > 0 else 0.0
@@ -428,7 +813,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			message_lines_sw.extend(msg for _, msg in sorted_kits[:10])
 			remaining = sorted_kits[10:]
 			if remaining:
-				remaining_wins = sum(w for w, _ in remaining)
+				remaining_wins = sw_wins - sum(w for w, _ in sorted_kits[:10])
 				remaining_percentage = round((remaining_wins/sw_wins)*100, 2) if sw_wins > 0 else 0.0
 				win_s = "win" if remaining_wins == 1 else "wins"
 				message_lines_sw.append(f"+ {remaining_wins} {win_s} with other kits ({remaining_percentage}%)")
@@ -437,6 +822,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			kit_wins_list = []
 			for swd_kit in kits:
 				wins = get_kit_wins('sw', swd_kit, duels_data)
+				update_kit_stats(uuid, swd_kit, wins)
 				if wins > 0:
 					win_s = "win" if wins == 1 else "wins"
 					kit_wins_list.append((wins, f"{wins} {swd_kit.capitalize()} {win_s}"))
@@ -445,9 +831,10 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			await ctx.send('\n'.join(message_lines_sw))
 		else:
 			wins = get_kit_wins('sw', kit, duels_data)
+			update_kit_stats(uuid, kit, wins)
 			win_s = "win" if wins == 1 else "wins"
 			percentage = round((wins/sw_wins)*100, 2) if sw_wins > 0 else 0.0
-			message = f'{get_rank(ign, data)}{displayname} has {wins} {kit.capitalize()} {win_s}. ({percentage}%)'
+			message = f'{get_rank(ign, data)}{displayname} has {wins} {kit.capitalize()} {win_s} in SkyWars Duels. ({percentage}%)'
 			await ctx.send(message)	
 	elif mode.lower() == 'blitz':
 		blitz_wins = get_mode_stat('blitz', 'wins', duels_data)
@@ -456,6 +843,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			kit_wins_list = []
 			for blitz_kit in kits_blitz:
 				wins = get_kit_wins('blitz', blitz_kit, duels_data)
+				update_kit_stats(uuid, blitz_kit, wins)
 				if wins > 0:
 					win_s = "win" if wins == 1 else "wins"
 					percentage = round((wins/blitz_wins)*100, 2) if blitz_wins > 0 else 0.0
@@ -464,7 +852,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			message_lines_blitz.extend(msg for _, msg in sorted_kits[:10])
 			remaining = sorted_kits[10:]
 			if remaining:
-				remaining_wins = sum(w for w, _ in remaining)
+				remaining_wins = blitz_wins - sum(w for w, _ in sorted_kits[:10])
 				remaining_percentage = round((remaining_wins/blitz_wins)*100, 2) if blitz_wins > 0 else 0.0
 				win_s = "win" if remaining_wins == 1 else "wins" 
 				message_lines_blitz.append(f"+ {remaining_wins} {win_s} with other kits ({remaining_percentage}%)")
@@ -473,6 +861,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			kit_wins_list = []
 			for blitz_kit in kits_blitz:
 				wins = get_kit_wins('blitz', blitz_kit, duels_data)
+				update_kit_stats(uuid, blitz_kit, wins)
 				if wins > 0:
 					win_s = "win" if wins == 1 else "wins"
 					kit_wins_list.append((wins, f"{wins} {blitz_kit.capitalize()} {win_s}"))
@@ -480,10 +869,12 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			message_lines_blitz.extend(msg for _, msg in sorted_kits)
 			await ctx.send('\n'.join(message_lines_blitz))
 		else:
-			for kit in kits_blitz:
-					wins = get_kit_wins('blitz', kit, duels_data)
-					win_s = "win" if wins == 1 else "wins"
-					message = f"{get_rank(ign, data)}{displayname} has {wins} {kit.capitalize} {win_s}."
+			wins = get_kit_wins('blitz', kit, duels_data)
+			update_kit_stats(uuid, kit, wins)
+			win_s = "win" if wins == 1 else "wins"
+			percentage = round((wins/blitz_wins)*100, 2) if blitz_wins > 0 else 0.0
+			message = f"{get_rank(ign, data)}{displayname} has {wins} {kit.capitalize()} {win_s} in Blitz Duels. ({percentage}%)"
+			await ctx.send(message)
 	elif mode.lower() == 'mw':
 		mw_wins = get_mode_stat('mw', 'wins', duels_data)
 		message_lines_mw = [f"{get_rank(ign, data)}{displayname} has {mw_wins} MegaWalls Duels wins."] 
@@ -491,6 +882,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			kit_wins_list = []
 			for mw_kit in kits_mw:
 				wins = get_kit_wins('mw', mw_kit, duels_data)
+				update_kit_stats(uuid, mw_kit, wins)
 				if wins > 0:
 					win_s = "win" if wins == 1 else "wins"
 					percentage = round((wins/mw_wins)*100, 2) if mw_wins > 0 else 0.0
@@ -499,7 +891,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			message_lines_mw.extend(msg for _, msg in sorted_kits[:10])
 			remaining = sorted_kits[10:]
 			if remaining:
-				remaining_wins = sum(w for w, _ in remaining)
+				remaining_wins = mw_wins - sum(w for w, _ in sorted_kits[:10])
 				remaining_percentage = round((remaining_wins/mw_wins)*100, 2) if mw_wins > 0 else 0.0
 				win_s = "win" if remaining_wins == 1 else "wins" 
 				message_lines_mw.append(f"+ {remaining_wins} {win_s} with other kits ({remaining_percentage}%)")
@@ -508,6 +900,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			kit_wins_list = []
 			for mw_kit in kits_mw:
 				wins = get_kit_wins('mw', mw_kit, duels_data)
+				update_kit_stats(uuid, mw_kit, wins)
 				if wins > 0:
 					win_s = "win" if wins == 1 else "wins"
 					kit_wins_list.append((wins, f"{wins} {mw_kit.capitalize()} {win_s}"))
@@ -515,26 +908,27 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 			message_lines_mw.extend(msg for _, msg in sorted_kits)
 			await ctx.send('\n'.join(message_lines_mw))
 		else:
-			for kit in kits_mw:
-					wins = get_kit_wins('mw', kit, duels_data)
-					win_s = "win" if wins == 1 else "wins"
-					message = f"{get_rank(ign, data)}{displayname} has {wins} {kit.capitalize} {win_s}."
-
+			wins = get_kit_wins('mw', kit, duels_data)
+			update_kit_stats(uuid, kit, wins)
+			win_s = "win" if wins == 1 else "wins"
+			percentage = round((wins/mw_wins)*100, 2) if mw_wins > 0 else 0.0
+			message = f"{get_rank(ign, data)}{displayname} has {wins} {kit.capitalize()} {win_s} in Mega Walls Duels. ({percentage}%)"
+			await ctx.send(message)
 	else:
 		wins = get_kit_wins(mode, kit, duels_data)
 		win_s = "win" if wins == 1 else "wins"
 		message = f"{get_rank(ign, data)}{displayname} has {wins} {kit.capitalize()} {win_s}."
+		print('in !kit; mode wasnt swd blitz or mw, FYI')
 		await ctx.send(message)
-	print(log(ctx.message.content, ctx.guild.name, ctx.author.name))
-	# print(f'!kit {ign} {mode} {kit} used in {ctx.guild.name} by {ctx.author.name}')
 
 @bot.command(name='s')
 async def s(ctx, ign=None):
 	if ign == None:
-		ign = ign_based_on_discord_user(ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
 	status = statusget(ign)
 	session = status.get("session", {})
-	displayname = get_displayname(ign)
+	playerdb_data = playerdbget(ign)
+	displayname = get_displayname(ign, playerdb_data)
 	if session.get("online"):
 		game = session.get('gameType')
 		mode = session.get('mode')
@@ -542,11 +936,11 @@ async def s(ctx, ign=None):
 		message = f"{displayname}\nGame: {game}\nMode: {mode}\nMap: {map if map != False else mode}"
 		await ctx.send(message)
 	else:
-		recent_games_data = get_recentgames(ign)["games"]
+		recent_games_data = recentgamesget(ign)["games"]
 		if len(recent_games_data) != 0:
 			messages_list = []
 			for id in range(len(recent_games_data)):
-				recentgames = get_recentgames(ign)["games"][id]
+				recentgames = recentgamesget(ign)["games"][id]
 				start_time = round(recentgames.get('date', 'N/A')/1000)
 				stop_time = round(recentgames.get('ended', 'N/A')/1000)
 				game = recentgames.get('gameType')
@@ -556,9 +950,6 @@ async def s(ctx, ign=None):
 			await ctx.send(f'{displayname} is (appearing) offline.\nRecent games:\n{'\n\n'.join(messages_list)}')
 		else:
 			await ctx.send(f'{displayname} is (appearing) offline. Recent games unavailable.')
-		# print(recentgames)
-	print(log(ctx.message.content, ctx.guild.name, ctx.author.name))	
-	# print(f'!s {ign} used in {ctx.guild.name} by {ctx.author.name}')
 
 @bot.command(name='tlb')
 async def tlb(ctx, frequency='weekly'):
@@ -593,14 +984,13 @@ async def tlb(ctx, frequency='weekly'):
 	response = f'Duels Monthly:\n' + "\n".join(messages[m] for m in monthly_lb_data[:10])
 	await ctx.send(response)
 
-	print(log(ctx.message.content, ctx.guild.name, ctx.author.name))
-
 @bot.command(name='uuid')
 async def uuid(ctx, ign=None):
 	if ign == None:
-		ign = ign_based_on_discord_user(ctx.author.display_name, ctx.author.name)
-	displayname = get_displayname(ign)
-	uuid = requests.get(f"https://playerdb.co/api/player/minecraft/{ign}").json()["data"]["player"]["id"]
+		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+	playerdb_data = playerdbget(ign)
+	displayname = get_displayname(ign, playerdb_data)
+	uuid = get_uuid(ign, playerdb_data)
 	await ctx.send(f"{displayname}'s UUID: `{uuid}`")
 
 @bot.command(name='kits')
@@ -609,7 +999,7 @@ async def uuid(ctx, *, args=''):
 
 @bot.command(name='dodge')
 async def dodge(ctx, ign1, amount=7, ign2='poki95'):
-	if str(ctx.channel) == 'dodging' and ctx.user.name == 'poki95':
+	if str(ctx.channel) == 'dodging' and ctx.author.name == 'poki95':
 		list1 = []
 		list2 = []
 		user_id = ctx.author.id
@@ -629,19 +1019,19 @@ async def dodge(ctx, ign1, amount=7, ign2='poki95'):
 			await asyncio.sleep(random.randint(7, 10))
 	else:
 		await ctx.send(f'Private command.')
-	print(log(ctx.message.content, ctx.guild.name, ctx.author.name))	
-	print(f'Succesfully stalked {ign1} for {int(amount)} iterations')
 
 @bot.command(name='test')
 async def test(ctx, *, input):
 	if ctx.author.name == 'poki95':
 		test_commands_list = [f"{line.strip()}" for line in input.strip().split(',')]
+		await ctx.reply(f'User `{ctx.author.name}` authorized.\nStarting the test of `{len(test_commands_list)}` commands.\nApprox. duration of the test: `{(len(test_commands_list)-1)*5}` seconds.')
 		for test_command in test_commands_list:
 			await ctx.send(test_command)
 			await asyncio.sleep(5)
-	print(log(ctx.message.content, ctx.guild.name, ctx.author.name))
+	else:
+		await ctx.reply(f'User `{ctx.author.name}` not authorized.')
 
-@bot.command(name='session')
+@bot.command(name='session') # WiP
 async def session(ctx, ign='poki95'):
 	if str(ctx.channel) == 'tracking' and ctx.user.name == 'poki95':
 		data = dataget(ign)
@@ -671,18 +1061,126 @@ async def check(ctx, ign='None', type='wins', mode='all_modes'):
 	duels_data = get_duels_data(data)
 	stat = get_mode_stat(mode, type, duels_data)
 	await ctx.send(f'{ign} has {stat} {type} in {mode}')
-	print(log(ctx.message.content, ctx.guild.name, ctx.author.name))
 
-'''@bot.command(name='stop')
-async def stop(ctx):
-	if ctx.author.name in ['poki95', 'awesomeduy']:
-		user_id = ctx.author.id
-		if running_tasks[user_id]:
-			running_tasks[user_id]
-			await ctx.reply(f"Succesfully stopped {ctx.author.name}'s running task.")
+@bot.command(name='link')
+async def link(ctx, ign=None):
+	if ign == None:
+		await ctx.send(already_linked(ctx.author.id))
+	else:
+		playerdb_data = playerdbget(ign)
+		uuid = get_uuid(ign, playerdb_data)
+		message = link_to(ctx.author.name, ctx.author.id, uuid, playerdb_data)
+		conn.commit()
+		await ctx.send(message)
+
+@bot.command(name='unlink')
+async def unlink(ctx):
+	message = unlink_from(ctx.author.id)
+	await ctx.send(message)
+
+@bot.command(name='dbs')
+async def dbs(ctx, table=None):
+	if ctx.author.name == 'poki95':
+		if table == 'modes':
+			for mode_alias in mode_list:
+				mode_db = mode_db_list[mode_list.index(mode_alias)]
+				mode_clean = mode_names[mode_list.index(mode_alias)]
+				try:
+					cursor.execute(
+						"INSERT INTO modes (mode_alias, mode_db, mode_clean) VALUES (?, ?, ?)",
+						(mode_alias, mode_db, mode_clean)
+					)
+					conn.commit()
+					print(f"Added {mode_alias} - {mode_db} - {mode_clean}")
+				except Exception as e:
+					print(f"error: {e}")
+					break
+			await ctx.send("Job done.")
+		elif table == 'kits':
+			for kit_alias in kits_sw:
+				mode = 'sw'
+				try:
+					cursor.execute(
+						"INSERT INTO kits (mode, kit_alias) VALUES (?, ?)",
+						(mode, kit_alias)
+					)
+					conn.commit()
+				except Exception as e:
+					print(e)
+					break
+			for kit_alias in kits_blitz:
+				mode = 'blitz'
+				try:
+					cursor.execute(
+						"INSERT INTO kits (mode, kit_alias) VALUES (?, ?)",
+						(mode, kit_alias)
+					)
+					conn.commit()
+				except Exception as e:
+					print(e)
+					break
+			for kit_alias in kits_mw:
+				mode = 'mw'
+				try:
+					cursor.execute(
+						"INSERT INTO kits (mode, kit_alias) VALUES (?, ?)",
+						(mode, kit_alias)
+					)
+					conn.commit()
+				except Exception as e:
+					print(e)
+					break
+			await ctx.send("Job done. (or not)")
 		else:
-			await ctx.reply(f"No tasks to be stopped for {ctx.author.name}.")'''
+			await ctx.send('Choose a table to setup; `modes`, `kits`')
+			
+	else:
+		await ctx.send("Unauthorized.")
 
+@bot.command(name='cak')
+async def cak(ctx, table=None):
+	if ctx.author.name == 'poki95':
+		global api_key
+		while True:
+			try:
+				r = requests.get(f'https://api.hypixel.net/player?key={api_key}&uuid=3e92f52f-03e8-4529-be93-353e3c360c63').json()["player"]
+				print('Checked temp API key: VALID.')
+				await asyncio.sleep(600)
+			except KeyError:
+				api_key = dev_api_key
+				print('Temp API key expired, switched to dev API key.')
+				await ctx.reply('api_key changed to dev_api_key')
+				await asyncio.sleep(2)
+				await ctx.reply('api_key changed to dev_api_key')
+				await asyncio.sleep(2)
+				await ctx.reply('api_key changed to dev_api_key')
+				await asyncio.sleep(2)
+				await ctx.reply('api_key changed to dev_api_key')
+				break
+
+@bot.command(name='mrfdb')
+async def mrfdb(ctx, *, mc_uuid):
+	if ctx.author.name == 'poki95':
+		try:
+			cursor.execute(f'''
+				SELECT discord_name
+				FROM linked_users
+				WHERE mc_uuid = ?
+			''', (mc_uuid,))
+			discord_name = cursor.fetchone()[0]
+			cursor.execute(f'''
+				DELETE FROM linked_users
+				WHERE mc_uuid = ?
+			''', (mc_uuid,))
+			conn.commit()
+			await ctx.send(f"Unlinked `{discord_name}` from `{mc_uuid}`")
+		except Exception as e:
+			if str(e) == "'NoneType' object is not subscriptable":
+				await ctx.send(f"Account not currently linked.")
+			else:
+				raise e
+	else:
+		await ctx.send("Unauthorized.")
 
 # Run the bot 
 bot.run(TOKEN)
