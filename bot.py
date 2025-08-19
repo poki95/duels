@@ -709,7 +709,7 @@ async def h(ctx, argument=None):
 	### !tlb <weekly/monthly> -> Shows the current Weekly/Monthly Duels Leaderboard.
 			-> !tlb weekly
 
-	### !klb <mode> <kit> -> Coming soon!
+	### !klb <kit> <mode> -> Shows the unofficial leaderboard for given kit!
 
 		
 	For any issues, contact **`poki95`** on Discord.
@@ -729,22 +729,14 @@ async def h(ctx, argument=None):
 	elif argument in ['u', 'update']:
 		if ctx.author.name == 'poki95':
 			await ctx.send('''
-			# New update dropped! <:avatar:1382441832809500792>
+			# New update dropped!
 
 	## New command
 
-	- `!link` -> Link your Discord account with your Minecraft account for faster stats checking!
+	- `!klb` -> Check Kit Leaderboards!
 	## Existing commands changes
 
-	- `!h` -> New and enhanced help menu!
-
-	- `!kit` -> 4 missing kits have been added + bug fixes!
-
-	- `!d` -> Improvements:
-	-- /duels games are now included in playtime estimates
-	-- Current and Best Winstreaks will now be shown
-	-- 'Ghost games' count is shown (games played that don't count as a win or a loss)
-	-- Bug fixes
+	- `!d` -> Updated icons and modes for the Duels Update 1.5
 
 	Feedback is more than welcome! Contact `poki95` on Discord.
 		
@@ -839,8 +831,8 @@ async def d(ctx, ign=None, mode='all'):
 	if displayname in swd_lifetime:
 		if equipped_icon == '#???' and 'SkyWars' in current_title:
 			current_title = current_title.replace('#???', f"#{str(swd_lifetime.index(displayname)+1)}")
-#		if displayname == 'poki95':
-#			current_title = '#1 SkyWars ASCENDED II'
+	#		if displayname == 'poki95':
+	#			current_title = '#1 SkyWars ASCENDED II'
 		
 	if mode == 'all':	
 		if overall_win_count >= 100000:
