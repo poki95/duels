@@ -13,8 +13,6 @@ import asyncio
 import sqlite3
 from re import sub
 from mojang import API
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
 
 # Discord bot token and hypixel api key
 load_dotenv(dotenv_path="keys.env")
