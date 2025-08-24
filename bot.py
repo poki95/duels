@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
+from discord.utils import get
 import math
 import requests
 import json
@@ -100,6 +101,27 @@ CREATE TABLE IF NOT EXISTS players_kits_stats (
 	UNIQUE(mc_uuid, kit_id)
 )
 ''')
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS guilds (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	guild_name TEXT NOT NULL UNIQUE
+)
+''')
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS guild_div_roles (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	guild_id INTEGER NOT NULL,
+	role TEXT NOT NULL,
+	UNIQUE(guild_id, role)
+)
+''')
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS guild_role_modes (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	guild_id INTEGER NOT NULL UNIQUE,
+	mode TEXT NOT NULL UNIQUE
+)
+''')
 conn.commit()
 
 
@@ -109,6 +131,7 @@ mode_db_list = ['all_modes', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow',
 mode_db_list_long = ['all_modes', 'uhc', 'skywars', 'megawalls', 'blitz', 'op', 'classic', 'bow', 'potion', 'combo', 'tnt_games', 'sumo', 'bridge', 'parkour', 'boxing', 'duel_arena', 'spleef', 'quake', 'bedwars']
 mode_names = ['', 'UHC', 'SkyWars', 'MW', 'Blitz', 'OP', 'Classic', 'Bow', 'NoDebuff', 'Combo', 'TNT', 'Sumo', 'Bridge', 'Parkour', 'Boxing', 'Arena', 'Spleef', 'Quakecraft', 'BedWars'] # clean mode names
 div_list = ['ASCENDED', 'DIVINE', 'CELESTIAL', 'Godlike', 'Grandmaster', 'Legend', 'Master', 'Diamond', 'Gold', 'Iron', 'Rookie', 'None'] # divisions
+div_hex_list = ['ff5555', 'ff55ff', '55ffff', 'aa00aa', 'ffff55', 'aa0000', '00a300', '00aaaa', 'ffaa00', 'ffffff', '555555', 'aaaaaa']
 div_req = [100000, 50000, 25000, 10000, 5000, 2000, 1000, 500, 250, 100, 50, 0] # requirements for each division title
 div_step = [10000, 10000, 5000, 3000, 1000, 600, 200, 100, 50, 30, 10, 1] # requirements to go up a level within a division title
 kits_sw = [
@@ -148,14 +171,14 @@ duels_gph = [20, 40, 50, 60, 30, 100, 85, 30, 30, 12, 120, 8, 12, 25, 60, 90, 90
 prefix_icons_db = [
 	'sigma', 'root', 'delta', 'walls', 'strike', 'excited', 'reminiscence', 'arrow', 'deny', 'repeated', 'layered', 'arena', 'speed', 'platforms', 'rhythm', 'confused', 'beam', 'final', # Iron (18)
 	'podium', 'fish', 'fallen_crest', 'regretting_this', 'smiley', 'heart', 'pointy_star', 'yin_and_yang', 'sun', 'fancy_star', 'snowman', 'biohazard', 'weight', 'flower', 'gg', 'smile_spam', 'reference', 'bill', # Grandmaster (18)
-	'#???', 'bear', 'same_great_taste', 'wither', 'lucky', 'victory', 'uninterested', 'piercing_look', 'alchemist', 'bliss', 'innocent', # ASCENDED (OA: CELESTIAL) (11)
+	'div_ranking', 'bear', 'same_great_taste', 'wither', 'lucky', 'victory', 'uninterested', 'piercing_look', 'alchemist', 'bliss', 'innocent', # ASCENDED (OA: CELESTIAL) (11)
 	'fists', 'flipper', "don't_punch", 'boxer', 'ghost', "don't_blink", 'Hypnotized' # ASCENDED (7)
 	'star', '' # Special (2)
 ]
 prefix_icons = [
 	'Σ', '√', 'δ', '÷', '⚡', '!!', '≈', '➜', '∅', '²', '≡', 'Θ', '»', '...', '♫♪', '??', '--', '☠️', # 18
 	'π', '><>', '☬', 'uwu', '^_^', '❤', '✵', '☯', '☀', '✯', '☃', '☣', 'B==B', '❀', 'GG', ':)))))', '{T}', '[($)]', # 18
-	'#???', 'wowow', 'ಠ_ಠ', '[._.]', '|(◕◡◕)/', '༼つ◕_◕༽つ', '(T_T)', '|>-<|', '<∅_∅>', '(*_b*)', '{0ww0}', # 11
+	'#???', 'wowow', 'ಠ_ಠ', '[._.]', '|(◕◡◕)/', '༼つ◕_◕༽つ', '(T_T)', '|>-<|', '<∅_∅>', '(*_b*)', '{▀͜ʖ▀}', # 11
 	'w(ಠ_ಠw)', '(`ಠ_ಠ)`≡T_T', '(*wb*)', "o=('_'Q)", '⚡(-w-⚡)', '-»[*_*]', '[@~@]' # 7
 	'✫', '' # 2
 ]
@@ -442,7 +465,10 @@ def unlink_from(discord_id):
 		else:
 			raise e
 
-def ign_not_given(discord_id, display_name, user_name):
+def ign_not_given(member):
+	discord_id = member.id
+	display_name = member.display_name
+	user_name = member.name
 	try:
 		cursor.execute(f"SELECT mc_uuid FROM linked_users WHERE discord_id = {discord_id}")
 		uuid = cursor.fetchone()[0]
@@ -583,6 +609,7 @@ def add_all_players_stats(uuid_or_ign, info):
 		playerdb_data = playerdbget(info)
 		if uuid_or_ign == 'ign':
 			uuid = get_uuid(info, playerdb_data)
+			ign = info
 		else:
 			ign = get_displayname(info, playerdb_data)
 			uuid = get_uuid(info, playerdb_data)
@@ -601,12 +628,132 @@ def add_all_players_stats(uuid_or_ign, info):
 			update_kit_stats(uuid, kit, wins, 'blitz')	
 		for kit in kits_mw:
 			wins = get_kit_wins('mw', kit, duels_data)
-			update_kit_stats(uuid, kit, wins, 'mw')	
-		time.sleep(5)
+			update_kit_stats(uuid, kit, wins, 'mw')
 		return (f"{ign} has been added.")
 	except Exception as e:
 		return (f"Error adding {info}: {e}")		
 
+def add_guild(guild):
+	guild_name = guild.name	
+	try:
+		cursor.execute(
+			"INSERT INTO guilds (guild_name) VALUES (?)",
+			(guild_name,)
+		)
+		conn.commit()
+	except Exception as e:
+		return (f'Add guild failed. Reason: {e}')
+
+def get_guild_id(guild):
+	guild_name = guild.name	
+	try:
+		cursor.execute(
+			"SELECT id FROM guilds WHERE guild_name = ?", (guild_name,)
+		)
+		result = cursor.fetchone()
+		if result is None:
+			return (f'Could not fetch guild id for {guild_name}')
+		return result[0]
+	except Exception as e:
+		print(f'Get guild id failed. Reason: {e}')
+		return None
+
+def add_guild_role_mode(guild, mode):
+	guild_name = guild.name	
+	guild_id = get_guild_id(guild)
+	if guild_id is None:
+		return f"`{guild_name}` hasn't been registered yet, run `!rs` to register the guild."
+	try:
+		cursor.execute(
+			"INSERT INTO guild_role_modes (guild_id, mode) VALUES (?, ?)",
+			(guild_id, mode)
+		)
+		conn.commit()
+		return f"`{guild_name}`'s role mode set to `{mode}`."
+	except Exception as e:
+		try:
+			cursor.execute(f'''
+				UPDATE guild_role_modes
+				SET
+					mode = ?
+				WHERE guild_id = ?
+			''', (mode, guild_id))
+			conn.commit()
+			return f"`{guild_name}`'s role mode updated to `{mode}`."
+		except Exception as e:
+			return (f'Set guild role mode failed. Reason: {e}')
+
+def get_guild_role_mode(guild):
+	guild_name = guild.name	
+	guild_id = get_guild_id(guild)
+	if guild_id is None:
+		return (f'Could not fetch guild role mode for {guild_name}')
+	try:
+		cursor.execute(
+			"SELECT mode FROM guild_role_modes WHERE guild_id = ?",
+			(guild_id,)
+		)
+		result = cursor.fetchone()
+		if result is None:
+			return (f'Could not fetch guild role mode for {guild_name}')
+		return result[0]
+	except Exception as e:
+		return (f'Get guild role mode failed. Reason: {e}')
+
+def add_guild_div_role(guild, role):
+	guild_name = guild.name
+	guild_id = get_guild_id(guild)
+	if guild_id is None:
+		return None
+	try:
+		cursor.execute(
+			"INSERT INTO guild_div_roles (guild_id, role) VALUES (?, ?)",
+			(guild_id, str(role))
+		)
+		conn.commit()
+		return (f"Added {role} ({guild_id}) to the guild_div_roles table")
+	except Exception as e:
+		return (f'Add guild division role failed. Reason: {e}')
+
+def get_guild_roles(guild):
+	guild_name = guild.name	
+	guild_id = get_guild_id(guild)
+	if guild_id is None:
+		return (f'Could not fetch guild roles for {guild_name}')
+	try:
+		cursor.execute(
+			"SELECT role FROM guild_div_roles WHERE guild_id = ?",
+			(guild_id,)
+		)
+		result = cursor.fetchall()
+		if result is None:
+			return (f'Could not fetch guild role mode for {guild_name}')
+		return result
+	except Exception as e:
+		return (f'Get guild role mode failed. Reason: {e}')
+
+def delete_div_role_from_guild(guild, div_role):
+	guild_id = get_guild_id(guild)
+	try:
+		cursor.execute(
+			"DELETE FROM guild_div_roles WHERE guild_id = ? AND role = ?",
+			(guild_id, div_role)
+		)
+		conn.commit()
+	except Exception as e:
+		print(f'Remove guild div role failed. Reason: {e}')
+
+def delete_guild_role_mode(guild):
+	guild_id = get_guild_id(guild)
+	mode = get_guild_role_mode(guild)
+	try:
+		cursor.execute(
+			"DELETE FROM guild_role_modes WHERE guild_id = ? AND mode = ?",
+			(guild_id, mode)
+		)
+		conn.commit()
+	except Exception as e:
+		print(f'Remove guild div role mode failed. Reason: {e}')
 
 # Is bot ready?
 @bot.event
@@ -654,15 +801,16 @@ async def ping(ctx, amount=1):
 async def h(ctx, argument=None):
 	if argument == None:
 		await ctx.send(f"""
-	# **Poki's Stats Checker** <:avatar:1382441832809500792>
+# **Poki's Stats Checker**
 
-	## Available commands:
+## Available commands:
 
-	- !d -> Duels Stats (!h duels)
-	- !kit -> Kit Stats (!h kit)
-	- !s -> Player Status (!h status)
-	- !tlb -> Current Leaderboards (!h lb)
-	- !link -> Link Account (!h link)
+- !d -> Duels Stats (!h duels)
+- !kit -> Kit Stats (!h kit)
+- !s -> Player Status (!h status)
+- !tlb -> Current Leaderboards (!h lb)
+- !link -> Link Account (!h link)
+- !rs -> Division roles (!h roles)
 		
 		
 	For any issues, contact **`poki95`** on Discord.
@@ -671,11 +819,11 @@ async def h(ctx, argument=None):
 		await ctx.send(f"""
 	Check a player's wins, division title, and estimated playtime.
 
-	### !d <ign> -> Shows stats for all Duels modes.
-			-> !d MCreeperWL
+### !d <ign> -> Shows stats for all Duels modes.
+		-> !d MCreeperWL
 
-	### !d <ign> <mode> -> Shows more specific stats for a specific mode.
-			-> !d Sothey boxing
+### !d <ign> <mode> -> Shows more specific stats for a specific mode.
+		-> !d Sothey boxing
 			
 	For any issues, contact **`poki95`** on Discord.
 	""")
@@ -683,11 +831,11 @@ async def h(ctx, argument=None):
 		await ctx.send(f"""
 	Check a player's kit wins for a specific mode.
 
-	### !kit <ign> <mode> -> Shows all kit wins for a specific mode.
-			-> !kit sockatoo
+### !kit <ign> <mode> -> Shows all kit wins for a specific mode.
+		-> !kit sockatoo
 
-	### !d <ign> <mode> <kit> -> Shows kit wins for a specific mode.
-			-> !kit poki95 pyromancer
+### !kit <ign> <mode> <kit> -> Shows kit wins for a specific mode.
+		-> !kit poki95 pyromancer
 			
 	For any issues, contact **`poki95`** on Discord.
 	""")
@@ -695,8 +843,8 @@ async def h(ctx, argument=None):
 		await ctx.send(f"""
 	Check a player's Status on Hypixel.
 
-	### !s <ign> -> Shows the player's status and recent games.
-			-> !s mutton38
+### !s <ign> -> Shows the player's status and recent games.
+		-> !s mutton38
 		
 	For any issues, contact **`poki95`** on Discord.
 	""")
@@ -704,10 +852,10 @@ async def h(ctx, argument=None):
 		await ctx.send(f"""
 	Check various leaderboards on Hypixel.
 
-	### !tlb <weekly/monthly> -> Shows the current Weekly/Monthly Duels Leaderboard.
-			-> !tlb weekly
+### !tlb <weekly/monthly> -> Shows the current Weekly/Monthly Duels Leaderboard.
+		-> !tlb weekly
 
-	### !klb <kit> <mode> -> Shows the unofficial leaderboard for given kit!
+### !klb <kit> <mode> -> Shows the unofficial leaderboard for given kit!
 
 		
 	For any issues, contact **`poki95`** on Discord.
@@ -716,11 +864,11 @@ async def h(ctx, argument=None):
 		await ctx.send(f"""
 	Link your Discord account to your Minecraft account for easier stats checking.
 
-	### !link <ign> -> Links your Discord account to your Minecraft account.
-			-> !link {ctx.author.name}
+### !link <ign> -> Links your Discord account to your Minecraft account.
+		-> !link {ctx.author.name}
 
-	### !unlink -> Unlinks your Discord account to your Minecraft account.
-			-> !unlink
+### !unlink -> Unlinks your Discord account to your Minecraft account.
+		-> !unlink
 		
 	For any issues, contact **`poki95`** on Discord.
 	""")
@@ -729,28 +877,44 @@ async def h(ctx, argument=None):
 			await ctx.send('''
 			# New update dropped!
 
-	## New command
+## New command
 
-	- `!klb` -> Check Kit Leaderboards!
-	## Existing commands changes
+- `!klb` -> Check Kit Leaderboards!
 
-	- `!d` -> Updated icons and modes for the Duels Update 1.5
+- `!rs` & `!check` -> Assign automatic roles based on division title in a given mode!
+
 
 	Feedback is more than welcome! Contact `poki95` on Discord.
 		
 		
 			''')
-		else:
-			await ctx.send("Unauthorized.")
+	elif argument in ['r', 'rs', 'check', 'roles', 'division', 'div', 'role']:
+		await ctx.send(f"""
+	Assign automatic roles based on division title in a given mode.
+
+### !rs -> Signs your guild up to the system. [reserved to admins]
+		-> !rs
+
+### !rs <mode> <True/False> -> Sets up the system. [reserved to admins]
+		-> !rs sw True
+
+### !check <ign (optional if `!link`'ed!)> <@user> -> Assigns the user's division title as a role in the set mode.
+		-> !check
+			
+	For any issues, contact **`poki95`** on Discord.
+	""")
+	else:
+		await ctx.send("Unauthorized.")
 
 @bot.command(name='d')
 async def d(ctx, ign=None, mode='all'):
+	member = ctx.author
 	if ign == None:
-		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(member)
 			
 	if ign.lower() in mode_list:
 		mode = ign
-		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(member)
 			
 	data = dataget(ign)
 
@@ -874,14 +1038,15 @@ async def d(ctx, ign=None, mode='all'):
 
 @bot.command(name='kit')
 async def kit(ctx, ign=None, mode='sw', kit='top10'):
+	member = ctx.author
 	if ign == None:
-		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(member)
 	elif ign.lower() in kits:
 		kit = ign.lower()
-		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(member)
 	elif ign.lower() in ['sw', 'blitz', 'mw']:
 		mode = ign
-		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(member)
 
 	data = dataget(ign)
 
@@ -1035,8 +1200,9 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 
 @bot.command(name='s')
 async def s(ctx, ign=None):
+	member = ctx.author
 	if ign == None:
-		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(member)
 	status = statusget(ign)
 	session = status.get("session", {})
 	playerdb_data = playerdbget(ign)
@@ -1098,8 +1264,9 @@ async def tlb(ctx, frequency='weekly'):
 
 @bot.command(name='uuid')
 async def uuid(ctx, ign=None):
+	member = ctx.author
 	if ign == None:
-		ign = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+		ign = ign_not_given(member)
 	playerdb_data = playerdbget(ign)
 	displayname = get_displayname(ign, playerdb_data)
 	uuid = get_uuid(ign, playerdb_data)
@@ -1112,8 +1279,9 @@ async def uuid(ctx, *, args=''):
 @bot.command(name='dodge')
 async def dodge(ctx, ign1, amount=7, ign2=None):
 	if str(ctx.channel) == 'dodging':
+		member = ctx.author
 		if ign2 == None:
-			ign2 = ign_not_given(ctx.author.id, ctx.author.display_name, ctx.author.name)
+			ign2 = ign_not_given(member)
 		list1 = []
 		list2 = []
 		user_id = ctx.author.id
@@ -1169,12 +1337,116 @@ async def session(ctx, ign='poki95'):
 	else:
 		await ctx.send(f'Private command.')
 
+@bot.command(name='rs')
+@commands.has_permissions(manage_roles=True)
+async def rs(ctx, mode=None, hoist=True):
+	guild = ctx.guild
+	added_guild = add_guild(guild)
+	if mode == None:
+		await ctx.send(f'''
+	Welcome to the automatic roles setup. Your guild `{guild}` has been added to the database.
+	Run `!rs <mode> <True/False>` with the mode you want the automatic division roles to be in.
+
+	List of valid modes: {", ".join(mode_db_list)}
+		''')
+		return
+	elif mode == 'reset':
+		guild_div_roles = [t[0] for t in get_guild_roles(guild)]
+		for div_role in guild_div_roles:
+			role = get(ctx.guild.roles, name=div_role)
+			try:
+				await role.delete()
+			except Exception as e:
+				print(e)
+			delete_div_role_from_guild(guild, div_role)
+		delete_guild_role_mode(guild)
+		await ctx.send("All bot made roles have been deleted.\nYou can now proceed to `!rs <mode> <True/False>`.")
+		return
+
+	elif mode not in mode_db_list:
+		await ctx.send(f'Invalid mode. (`{mode}`)')
+		return
+	mode_clean = mode_names[mode_db_list.index(mode)]
+
+	for div in div_list:
+		is_oa = (div == '')
+		if not is_oa:
+			title = f'{mode_clean} {div}'
+		else:
+			title = div
+		color = discord.Colour(int(div_hex_list[div_list.index(div)], 16))
+		role = await guild.create_role(
+			name=title,
+			colour=color,
+			mentionable=True,
+			hoist=hoist
+		)
+		(add_guild_div_role(guild, role))
+	if added_guild == 'Add guild failed. Reason: UNIQUE constraint failed: guilds.guild_name':
+		await ctx.send(f'{add_guild_role_mode(guild, mode)}')
+
+
 @bot.command(name='check')
-async def check(ctx, ign='None', type='wins', mode='all_modes'):
+async def check(ctx, ign=None, who: discord.Member=None):
+	guild = ctx.guild
+	member = who or ctx.author
+	if who is not None and not ctx.author.guild_permissions.manage_roles:
+		 await ctx.send("You are not authorized to check other members.")
+		return
+
+	mode = get_guild_role_mode(guild)
+	mode_clean = mode_names[mode_db_list.index(mode)]
+
+	if ign == None:
+		ign = ign_not_given(member)
 	data = dataget(ign)
+	if data == None:
+		await ctx.send('Invalid IGN.')
+		return
+		
+	playerdb_data = playerdbget(ign)
+	displayname = get_displayname(ign, playerdb_data)
+	uuid = get_uuid(ign, playerdb_data)
 	duels_data = get_duels_data(data)
-	stat = get_mode_stat(mode, type, duels_data)
-	await ctx.send(f'{ign} has {stat} {type} in {mode}')
+	win_count = get_mode_stat(mode, 'wins', duels_data)
+
+	is_oa = (mode == 'all_modes')
+	div, div_num = get_division_info(win_count, is_oa)	
+	
+	if not is_oa:
+		division = f'{mode_clean} {div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else f'{mode_clean} {div}'
+		base_div = f'{mode_clean} {div}'
+	else:
+		division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
+		base_div = div
+	color = discord.Colour(int(div_hex_list[div_list.index(div)], 16))
+
+	role_names = [role.name for role in guild.roles if role != guild.default_role]
+	base_role = get(ctx.guild.roles, name=base_div) # get the base division role (already created in !rs)
+
+	if division not in role_names:
+		role = await guild.create_role(
+			name=division,
+			colour=color,
+			mentionable=True,
+		)
+		(add_guild_div_role(guild, role))
+		await ctx.send(f'`{role}` role created.')
+	else:
+		role = get(ctx.guild.roles, name=division)
+	
+	user_role_names = [role.name for role in member.roles if role != guild.default_role]
+	guild_div_roles = [t[0] for t in get_guild_roles(guild)] # roles created by this bot in the guild
+
+
+	if division not in user_role_names:
+		roles_to_remove = [role for role in member.roles if role.name in guild_div_roles] # Roles created by the bot currently assigned to user
+		await member.remove_roles(*roles_to_remove) # Remove all division roles from user
+		await member.add_roles(base_role)
+		await member.add_roles(role)
+		await ctx.send(f"`{member.display_name}` is now `{role}`!")
+	else:
+		await ctx.send(f"`{member.display_name}` is already `{role}`!")
 
 @bot.command(name='link')
 async def link(ctx, ign=None):
@@ -1310,6 +1582,7 @@ async def dbf(ctx, what, *, input):
 			await ctx.reply(f'User `{ctx.author.name}` authorized.\nStarting the addition of `{len(igns_list)}` players to the database.\nApprox. duration of the test: `{(len(igns_list)-1)*10-5}` seconds.')
 			for ign in igns_list:
 				await ctx.send(add_all_players_stats('ign', ign))
+				await asyncio.sleep(5)
 		elif what == 'guild':
 			guild_data = guildget(input, what)['guild']
 			igns_list = guild_data.get('members', {})
@@ -1317,6 +1590,7 @@ async def dbf(ctx, what, *, input):
 				uuid = igns_list[i].get('uuid', '?')
 				if uuid != '?':
 					await ctx.send(add_all_players_stats('uuid', uuid))
+					await asyncio.sleep(5)
 
 		await ctx.reply(f"Done! Added `{len(igns_list)}` players to the database.")
 	else:
