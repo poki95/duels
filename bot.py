@@ -129,7 +129,7 @@ conn.commit()
 mode_list = ['oa', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'ndb', 'combo', 'tnt', 'sumo', 'bridge', 'pkd', 'boxing', 'arena', 'spleef', 'quake', 'bw', 'all'] # mode aliases
 mode_db_list = ['all_modes', 'uhc', 'sw', 'mw', 'blitz', 'op', 'classic', 'bow', 'potion', 'combo', 'bowspleef', 'sumo', 'bridge', 'parkour_eight', 'boxing', 'duel_arena', 'spleef', 'quake', 'bedwars'] # mode database aliases
 mode_db_list_long = ['all_modes', 'uhc', 'skywars', 'megawalls', 'blitz', 'op', 'classic', 'bow', 'potion', 'combo', 'tnt_games', 'sumo', 'bridge', 'parkour', 'boxing', 'duel_arena', 'spleef', 'quake', 'bedwars']
-mode_names = ['', 'UHC', 'SkyWars', 'MW', 'Blitz', 'OP', 'Classic', 'Bow', 'NoDebuff', 'Combo', 'TNT', 'Sumo', 'Bridge', 'Parkour', 'Boxing', 'Arena', 'Spleef', 'Quakecraft', 'BedWars'] # clean mode names
+mode_names = ['', 'UHC', 'SkyWars', 'Mega Walls', 'Blitz', 'OP', 'Classic', 'Bow', 'NoDebuff', 'Combo', 'TNT', 'Sumo', 'Bridge', 'Parkour', 'Boxing', 'Arena', 'Spleef', 'Quakecraft', 'BedWars'] # clean mode names
 div_list = ['ASCENDED', 'DIVINE', 'CELESTIAL', 'Godlike', 'Grandmaster', 'Legend', 'Master', 'Diamond', 'Gold', 'Iron', 'Rookie', 'None'] # divisions
 div_hex_list = ['ff5555', 'ff55ff', '55ffff', 'aa00aa', 'ffff55', 'aa0000', '00a300', '00aaaa', 'ffaa00', 'ffffff', '555555', 'aaaaaa']
 div_req = [100000, 50000, 25000, 10000, 5000, 2000, 1000, 500, 250, 100, 50, 0] # requirements for each division title
@@ -172,14 +172,14 @@ prefix_icons_db = [
 	'sigma', 'root', 'delta', 'walls', 'strike', 'excited', 'reminiscence', 'arrow', 'deny', 'repeated', 'layered', 'arena', 'speed', 'platforms', 'rhythm', 'confused', 'beam', 'final', # Iron (18)
 	'podium', 'fish', 'fallen_crest', 'regretting_this', 'smiley', 'heart', 'pointy_star', 'yin_and_yang', 'sun', 'fancy_star', 'snowman', 'biohazard', 'weight', 'flower', 'gg', 'smile_spam', 'reference', 'bill', # Grandmaster (18)
 	'div_ranking', 'bear', 'same_great_taste', 'wither', 'lucky', 'victory', 'uninterested', 'piercing_look', 'alchemist', 'bliss', 'innocent', # ASCENDED (OA: CELESTIAL) (11)
-	'fists', 'flipper', "don't_punch", 'boxer', 'ghost', "don't_blink", 'Hypnotized' # ASCENDED (7)
-	'star', '' # Special (2)
+	'fists', 'flipper', "don't_punch", 'boxer', 'ghost', "don't_blink", 'Hypnotized', # ASCENDED 
+	'star', 'none' # Special (2)
 ]
 prefix_icons = [
-	'Σ', '√', 'δ', '÷', '⚡', '!!', '≈', '➜', '∅', '²', '≡', 'Θ', '»', '...', '♫♪', '??', '--', '☠️', # 18
+	'Σ', '√', 'δ', '÷', '⚡', '!!', '≈', '➜', '∅', '²', '≡', 'Θ', '»', '...', '♫♪', '??', '--', '☠', # 18
 	'π', '><>', '☬', 'uwu', '^_^', '❤', '✵', '☯', '☀', '✯', '☃', '☣', 'B==B', '❀', 'GG', ':)))))', '{T}', '[($)]', # 18
 	'#???', 'wowow', 'ಠ_ಠ', '[._.]', '|(◕◡◕)/', '༼つ◕_◕༽つ', '(T_T)', '|>-<|', '<∅_∅>', '(*_b*)', '{▀͜ʖ▀}', # 11
-	'w(ಠ_ಠw)', '(`ಠ_ಠ)`≡T_T', '(*wb*)', "o=('_'Q)", '⚡(-w-⚡)', '-»[*_*]', '[@~@]' # 7
+	'w(ಠ_ಠw)', '(`ಠ_ಠ)`≡T_T', '(*wb*)', "o=('_'Q)", '⚡(-w-⚡)', '-»[*_*]', '[@~@]', # 7
 	'✫', '' # 2
 ]
 
@@ -309,7 +309,7 @@ def get_nwl(ign, data):
 	return nwl
 
 def get_guild(ign, guild_data):
-	if guild_data["guild"] != None:
+	if guild_data["guild"]:
 		guild = guild_data["guild"].get("name", None)
 		return guild
 	else:
@@ -941,7 +941,7 @@ async def d(ctx, ign=None, mode='all'):
 	equipped_color = duels_data.get("active_prefix_scheme", '')
 	equipped_title = duels_data.get("active_title", '')
 	if equipped_title != '':
-		equipped_icon = prefix_icons[prefix_icons_db.index(duels_data.get("active_prefix_icon", 'prefix_icon_star').replace("prefix_icon_", ''))]
+		equipped_icon = prefix_icons[prefix_icons_db.index(str(duels_data.get("active_prefix_icon", 'prefix_icon_star').replace("prefix_icon_", '')))]
 	else:
 		equipped_icon = ''
 	
@@ -997,7 +997,7 @@ async def d(ctx, ign=None, mode='all'):
 	#			current_title = '#1 SkyWars ASCENDED II'
 		
 	if mode == 'all':	
-		if overall_win_count >= 100000:
+		if overall_win_count >= 100000 and len(current_title) > 0:
 			current_title = '**' + current_title + '**'	
 		message_lines = [f"{sub(' +', ' ', current_title)} {get_rank(ign, data)}{displayname}\n{format_number(overall_win_count)} Overall {win_s} - {oa_division} (~{round(overall_playtime)}h)"]
 		message_lines.extend(msg for _, msg in sorted_modes)
@@ -1039,6 +1039,8 @@ async def d(ctx, ign=None, mode='all'):
 @bot.command(name='kit')
 async def kit(ctx, ign=None, mode='sw', kit='top10'):
 	member = ctx.author
+	kit = kit.replace('-', ' ')
+	ign = ign.replace('-', ' ')
 	if ign == None:
 		ign = ign_not_given(member)
 	elif ign.lower() in kits:
@@ -1053,6 +1055,7 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 	if data == None:
 		await ctx.send('Invalid IGN.')
 		return
+
 
 	if mode.lower() not in kit_options:
 		await ctx.send(f'`{mode}` is not an available option. Type `!h` for help.')
@@ -1391,7 +1394,7 @@ async def check(ctx, ign=None, who: discord.Member=None):
 	guild = ctx.guild
 	member = who or ctx.author
 	if who is not None and not ctx.author.guild_permissions.manage_roles:
-		 await ctx.send("You are not authorized to check other members.")
+		await ctx.send("You are not authorized to check other members.")
 		return
 
 	mode = get_guild_role_mode(guild)
@@ -1428,7 +1431,7 @@ async def check(ctx, ign=None, who: discord.Member=None):
 		role = await guild.create_role(
 			name=division,
 			colour=color,
-			mentionable=True,
+			mentionable=False,
 		)
 		(add_guild_div_role(guild, role))
 		await ctx.send(f'`{role}` role created.')
@@ -1564,6 +1567,8 @@ async def mrfdb(ctx, *, mc_uuid):
 
 @bot.command(name='klb')
 async def klb(ctx, kit='pyromancer', mode='sw'):
+	if '-' in kit:
+		kit = kit.replace('-', ' ')
 	leaderboard = [f"## Top 10 {mode.capitalize()} {kit.capitalize()} kit wins"]
 	kit_wins_list = get_all_players_with_kit_wins(kit.lower(), mode.lower())
 	if kit_wins_list == "Kit doesn't exist for the specified mode.":
