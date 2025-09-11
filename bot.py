@@ -929,15 +929,14 @@ async def d(ctx, ign=None, mode='all'):
 	playerdb_data = playerdbget(ign)
 	displayname = get_displayname(ign, playerdb_data)
 	uuid = get_uuid(ign, playerdb_data)
-
-	add_player(uuid, data, playerdb_data)
 	
 	if displayname.count('_') >= 2 and displayname.count('__') != 1:
 		displayname = f'`{displayname}`'
 
 	duels_data = get_duels_data(data)
 	
-	equipped_icon = prefix_icons[prefix_icons_db.index(duels_data.get("active_prefix_icon", '').replace("prefix_icon_", ''))]
+	if duels_data.get("active_prefix_icon", '') != '':
+		equipped_icon = prefix_icons[prefix_icons_db.index(duels_data.get("active_prefix_icon", '').replace("prefix_icon_", ''))]
 	equipped_color = duels_data.get("active_prefix_scheme", '')
 	equipped_title = duels_data.get("active_title", '')
 	if equipped_title != '':
@@ -1036,12 +1035,15 @@ async def d(ctx, ign=None, mode='all'):
 			{format_number(ghost_games)} ghost games - {cws} CWS - {bws} BWS""")
 		await ctx.send(message)
 
+	add_player(uuid, data, playerdb_data)
 @bot.command(name='kit')
-async def kit(ctx, ign=None, mode='sw', kit='top10'):
+async def kit(ctx, ign='None', mode='sw', kit='top10'):
 	member = ctx.author
 	kit = kit.replace('-', ' ')
-	ign = ign.replace('-', ' ')
-	if ign == None:
+	if '-' in ign:
+		kit = ign.replace('-', ' ')
+		ign = 'None'
+	if ign == 'None':
 		ign = ign_not_given(member)
 	elif ign.lower() in kits:
 		kit = ign.lower()
@@ -1073,7 +1075,6 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 	displayname = get_displayname(ign, playerdb_data)
 	uuid = get_uuid(ign, playerdb_data)
 
-	add_player(uuid, data, playerdb_data)
 
 	duels_data = get_duels_data(data)
 
@@ -1200,6 +1201,8 @@ async def kit(ctx, ign=None, mode='sw', kit='top10'):
 		message = f"{get_rank(ign, data)}{displayname} has {wins} {kit.capitalize()} {win_s}."
 		print('in !kit; mode wasnt swd blitz or mw, FYI')
 		await ctx.send(message)
+
+	add_player(uuid, data, playerdb_data)
 
 @bot.command(name='s')
 async def s(ctx, ign=None):
@@ -1391,6 +1394,9 @@ async def rs(ctx, mode=None, hoist=True):
 
 @bot.command(name='check')
 async def check(ctx, ign=None, who: discord.Member=None):
+	if ctx.author in ['flowstate0237', 'catering', 'gnjhbfbdgh', 'mcdtoogood', 'memorises', 'flame517.']:
+		await ctx.reply("YOU HAVE BEEN TOO NAUGHTY TO USE THIS!!!!!")
+		return
 	guild = ctx.guild
 	member = who or ctx.author
 	if who is not None and not ctx.author.guild_permissions.manage_roles:
@@ -1533,12 +1539,11 @@ async def cak(ctx):
 		while True:
 			try:
 				r = requests.get(f'https://api.hypixel.net/player?key={api_key}&uuid=3e92f52f-03e8-4529-be93-353e3c360c63').json()["player"]
-				print('Checked temp API key: VALID.')
 				await asyncio.sleep(600)
 			except KeyError:
 				api_key = dev_api_key
 				print('Temp API key expired, switched to dev API key.')
-				await ctx.reply('api_key changed to dev_api_key')
+				await ctx.reply('API key changed')
 				break
 
 @bot.command(name='mrfdb')
