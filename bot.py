@@ -315,18 +315,21 @@ def get_guild(ign, guild_data):
 	else:
 		return None
 
-def get_division_info(wins, is_oa=False):
-        practical_wins = wins / 2 if is_oa else wins
-        for i, req in enumerate(div_req):
-            if practical_wins >= req:
-                div = div_list[i]
-                div_num = math.floor((practical_wins - (req - div_step[i])) / div_step[i])
-                break
-        else:
-            div = 'None'
-            div_num = 1
-        div_num = min(div_num, 50)
-        return div, div_num
+def get_division_info(wins, mode):
+	if mode in ['oa', 'all_modes']:
+		practical_wins = wins / 2
+	else:
+		practical_wins = wins*2 if mode in ['mw', 'boxing', 'potion', 'parkour', 'bridge'] else wins
+	for i, req in enumerate(div_req):
+		if practical_wins >= req:
+			div = div_list[i]
+			div_num = math.floor((practical_wins - (req - div_step[i])) / div_step[i])
+			break
+	else:
+		div = 'None'
+		div_num = 1
+	div_num = min(div_num, 50)
+	return div, div_num
 
 def get_mode_stat(mode_db, type, duels_data):
 	if mode_db == 'all_modes':
@@ -955,7 +958,7 @@ async def d(ctx, ign=None, mode='all'):
 		win_count, win_s, loss_count, loss_es, games_played, kill_count, kill_s, death_count, death_s, cws, bws = get_duels_stats(mode_db, duels_data)
 
 		is_oa = (mode_db == 'oa') 
-		div, div_num = get_division_info(win_count, is_oa)	
+		div, div_num = get_division_info(win_count, mode_db)	
 		division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
 		random_q_playtime = (win_count + loss_count)/gph[mode_db_list.index(mode_db)-1]
 		ghost_games_playtime = (games_played - win_count - loss_count)/duels_gph[mode_db_list.index(mode_db)-1]
@@ -974,7 +977,7 @@ async def d(ctx, ign=None, mode='all'):
 				random_q_playtime = normal_playtime + rush_playtime				
 				wins_list.append((win_count, f"{format_number(win_count)} {mode_clean} {win_s} - {mode_clean} {division} (~{playtime}h)"))
 			elif mode_db == 'duel_arena':
-				div, div_num = get_division_info(kill_count, False)	
+				div, div_num = get_division_info(kill_count, mode_db)	
 				division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
 				playtime = round(games_played/65, 1)
 				wins_list.append((kill_count, f"{format_number(kill_count)} {mode_clean} {kill_s} - {mode_clean} {division} (~{playtime}h)"))
@@ -983,7 +986,7 @@ async def d(ctx, ign=None, mode='all'):
 
 		else:
 			overall_win_count = get_mode_stat(mode_db, 'wins', duels_data)
-			div, div_num = get_division_info(win_count, True)	
+			div, div_num = get_division_info(win_count, 'oa')	
 			oa_division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
 			mode_clean = mode_names[mode_db_list.index(mode_db)]
 			if 'all_modes' in equipped_title:
@@ -1009,7 +1012,7 @@ async def d(ctx, ign=None, mode='all'):
 		update_mode_stats(uuid, mode_db, win_count, loss_count, games_played, kill_count, death_count, cws, bws) # UPDATE MODE STATS IN DB
 		
 		is_oa = (mode_db == 'oa')
-		div, div_num = get_division_info(win_count, is_oa)	
+		div, div_num = get_division_info(win_count, mode_db)	
 		division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
 		mode_clean = mode_names[mode_db_list.index(mode_db)]
 		random_q_playtime = (win_count + loss_count)/gph[mode_db_list.index(mode_db)-1]
@@ -1023,7 +1026,7 @@ async def d(ctx, ign=None, mode='all'):
 			{format_number(win_count)} {win_s} - {format_number(loss_count)} {loss_es} - {WLR} WLR
 			{format_number(ghost_games)} ghost games - {cws} CWS - {bws} BWS""")
 		elif mode == 'arena':
-			div, div_num = get_division_info(kill_count, False)	
+			div, div_num = get_division_info(kill_count, mode_db)	
 			division = f'{div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else div
 			message = sub(' +', ' ', f"""✫ {mode_clean} {oa_division if mode == 'oa' else division} {get_rank(ign, data)}{displayname} (~{playtime}h)
 			{format_number(kill_count)} {kill_s} - {format_number(death_count)} {death_s} - {KDR} KDR
@@ -1392,7 +1395,6 @@ async def rs(ctx, mode=None, hoist=True):
 		await ctx.send(f'{add_guild_role_mode(guild, mode)}')
 
 
-@bot.command(name='check')
 async def check(ctx, ign=None, who: discord.Member=None):
 	if ctx.author in ['flowstate0237', 'catering', 'gnjhbfbdgh', 'mcdtoogood', 'memorises', 'flame517.']:
 		await ctx.reply("YOU HAVE BEEN TOO NAUGHTY TO USE THIS!!!!!")
@@ -1420,7 +1422,7 @@ async def check(ctx, ign=None, who: discord.Member=None):
 	win_count = get_mode_stat(mode, 'wins', duels_data)
 
 	is_oa = (mode == 'all_modes')
-	div, div_num = get_division_info(win_count, is_oa)	
+	div, div_num = get_division_info(win_count, mode)	
 	
 	if not is_oa:
 		division = f'{mode_clean} {div} {roman.toRoman(div_num)}' if div_num != 1 and div != "None" else f'{mode_clean} {div}'
@@ -1532,19 +1534,34 @@ async def dbs(ctx, table=None):
 	else:
 		await ctx.send("Unauthorized.")
 
-@bot.command(name='cak')
-async def cak(ctx):
+@bot.command(name='apikey')
+async def cak(ctx, mode=None, key=None):
 	if ctx.author.name == 'poki95':
 		global api_key
-		while True:
-			try:
-				r = requests.get(f'https://api.hypixel.net/player?key={api_key}&uuid=3e92f52f-03e8-4529-be93-353e3c360c63').json()["player"]
-				await asyncio.sleep(600)
-			except KeyError:
-				api_key = dev_api_key
-				print('Temp API key expired, switched to dev API key.')
-				await ctx.reply('API key changed')
-				break
+		if not mode:
+			if api_key == dev_api_key:
+				await ctx.reply('Permanent API key active.')
+			else:
+				await ctx.reply('Temporary API key active.')
+		elif mode == 'check':
+			if api_key != dev_api_key:
+				try:
+					r = requests.get(f'https://api.hypixel.net/player?key={api_key}&uuid=3e92f52f-03e8-4529-be93-353e3c360c63').json()["player"]
+					await ctx.reply('Permanent API key activated.')
+					return
+				except KeyError:
+					api_key = dev_api_key
+					print('Temp API key expired, switched to dev API key.')
+					await ctx.reply('Permanent API key activated.')
+					return
+			else:
+				await ctx.reply('Permanent API key already active.')
+		elif mode == 'set':
+			if not key:
+				await ctx.reply('Please provide an API key.')
+				return
+			api_key = key
+			await ctx.reply('API key changed.')
 
 @bot.command(name='mrfdb')
 async def mrfdb(ctx, *, mc_uuid):
@@ -1571,28 +1588,27 @@ async def mrfdb(ctx, *, mc_uuid):
 		await ctx.send("Unauthorized.")
 
 @bot.command(name='klb')
-async def klb(ctx, kit='pyromancer', mode='sw'):
+async def klb(ctx, kit='pyromancer', mode='sw', amount=10):
 	if '-' in kit:
 		kit = kit.replace('-', ' ')
-	leaderboard = [f"## Top 10 {mode.capitalize()} {kit.capitalize()} kit wins"]
+	leaderboard = [f"## Top {amount} {mode.capitalize()} {kit.capitalize()} kit wins"]
 	kit_wins_list = get_all_players_with_kit_wins(kit.lower(), mode.lower())
 	if kit_wins_list == "Kit doesn't exist for the specified mode.":
 		await ctx.send(kit_wins_list)
 		return
-	leaderboard_list = sorted(kit_wins_list, key=lambda x: x[0], reverse=True)[:10]
+	leaderboard_list = sorted(kit_wins_list, key=lambda x: x[0], reverse=True)[:amount]
 	for pos, (_, msg) in enumerate(leaderboard_list, start=1):
 		leaderboard.append(f"{pos}. {msg}")
 	await ctx.send('\n'.join(leaderboard))
 
 @bot.command(name='dbf')
 async def dbf(ctx, what, *, input):
-	if ctx.author.name == 'poki95':
+	if ctx.author.name in ['poki95', 'fancyclown']:
 		if what == 'players':
 			igns_list = [f"{line.strip()}" for line in input.strip().split(' ')]
-			await ctx.reply(f'User `{ctx.author.name}` authorized.\nStarting the addition of `{len(igns_list)}` players to the database.\nApprox. duration of the test: `{(len(igns_list)-1)*10-5}` seconds.')
+			await ctx.reply(f'User `{ctx.author.name}` authorized.\nStarting the addition of `{len(igns_list)}` players to the database.')
 			for ign in igns_list:
 				await ctx.send(add_all_players_stats('ign', ign))
-				await asyncio.sleep(5)
 		elif what == 'guild':
 			guild_data = guildget(input, what)['guild']
 			igns_list = guild_data.get('members', {})
@@ -1600,7 +1616,6 @@ async def dbf(ctx, what, *, input):
 				uuid = igns_list[i].get('uuid', '?')
 				if uuid != '?':
 					await ctx.send(add_all_players_stats('uuid', uuid))
-					await asyncio.sleep(5)
 
 		await ctx.reply(f"Done! Added `{len(igns_list)}` players to the database.")
 	else:
