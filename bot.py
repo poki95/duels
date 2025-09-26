@@ -88,7 +88,8 @@ cursor.execute('''
 CREATE TABLE IF NOT EXISTS kits (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	mode TEXT NOT NULL,
-	kit TEXT NOT NULL
+	kit TEXT NOT NULL,
+	UNIQUE(mode, kit)
 )
 ''')
 cursor.execute('''
@@ -304,7 +305,7 @@ def get_rank(ign, data):
         return str()
 
 def get_nwl(ign, data):
-	exp = data["player"]["networkExp"]
+	exp = data["player"].get("networkExp", 0)
 	nwl = round(math.sqrt(exp/1250 + 12.25) - 2.5, 2)
 	return nwl
 
@@ -607,6 +608,54 @@ def get_all_players_with_kit_wins(kit, mode):
 		raise e
 		return f"error in selecting mc uuid: {e}" 
 	
+def get_mode_id(mode):
+	if mode not in mode_db_list:
+		if mode in mode_list:
+			mode = mode_db_list[mode_list.index(mode)]
+		else:
+			return "Invalid mode."
+	try:
+		cursor.execute(
+			"SELECT id FROM modes WHERE mode_db = ?", (mode,)
+		)
+		result = cursor.fetchone()
+		if result is None:
+			return (f'Could not fetch mode id for {mode}')
+		return result[0]
+	except Exception as e:
+		print(f'Get mode id failed. Reason: {e}')
+		return None
+
+def get_all_players_stat(stat, mode):
+	mode_id = get_mode_id(mode)
+	mode_clean = mode_names[mode_list.index(mode)] if mode != 'oa' else 'Overall'
+	sqlite_command = f"SELECT mc_uuid, {stat} FROM players_stats WHERE mode_id = ?"
+	try:
+		cursor.execute(sqlite_command, (mode_id,))
+		result = cursor.fetchall()
+		# print(f"Fetched results: {result}")
+		list = []
+		for info in result:
+			uuid = info[0]
+			stats = info[1]
+			cursor.execute(f"SELECT mc_ign FROM players WHERE mc_uuid = ?", (uuid,))
+			user = cursor.fetchone()[0]
+			list.append((stats, f"{user}: {stats} {mode_clean.capitalize()} {stat}"))
+		return list
+	except Exception as e:
+		raise e
+		return f"error in selecting mc uuid and {stat}: {e}" 
+
+def get_amount_of_rows(table):
+	sqlite_command = f"SELECT count(*) FROM {table}"
+	try:
+		cursor.execute(sqlite_command)
+		result = cursor.fetchall()[0]
+		return result
+	except Exception as e:
+		raise e
+		return f"error in selecting mc uuid and {stat}: {e}" 
+
 def add_all_players_stats(uuid_or_ign, info):
 	try:
 		playerdb_data = playerdbget(info)
@@ -758,12 +807,10 @@ def delete_guild_role_mode(guild):
 	except Exception as e:
 		print(f'Remove guild div role mode failed. Reason: {e}')
 
-# Is bot ready?
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user.name} - {bot.user.id}')
+    print(f'{bot.user.name} is ready for use! ({bot.user.id})')
 	
-# Logging setup
 commands_logs = 'commands_logs.json'
 if not os.path.exists(commands_logs):
     with open(commands_logs, "w") as f:
@@ -797,8 +844,12 @@ async def on_command_error(ctx, error):
 # Bot commands
 @bot.command(name='ping')
 async def ping(ctx, amount=1):
-	for a in range(amount):
-		await ctx.reply(f'Pong! 🏓\n<t:{round(time.mktime(time.localtime()))}:T>')
+	amount_of_players = get_amount_of_rows('players')[0]
+	amount_of_players_stats = get_amount_of_rows('players_stats')[0]
+	amount_of_players_kits_stats = get_amount_of_rows('players_kits_stats')[0]
+	await ctx.reply(f'''
+Players: `{amount_of_players}` | Linked players: `{amount_of_linked_players}`
+''')
 
 @bot.command(name='h')
 async def h(ctx, argument=None):
@@ -1394,9 +1445,9 @@ async def rs(ctx, mode=None, hoist=True):
 	if added_guild == 'Add guild failed. Reason: UNIQUE constraint failed: guilds.guild_name':
 		await ctx.send(f'{add_guild_role_mode(guild, mode)}')
 
-
+@bot.command(name='check')
 async def check(ctx, ign=None, who: discord.Member=None):
-	if ctx.author in ['flowstate0237', 'catering', 'gnjhbfbdgh', 'mcdtoogood', 'memorises', 'flame517.']:
+	if ctx.author.name in ['flowstate0237', 'catering', 'gnjhbfbdgh', 'mcdtoogood', 'memorises', 'flame517.']:
 		await ctx.reply("YOU HAVE BEEN TOO NAUGHTY TO USE THIS!!!!!")
 		return
 	guild = ctx.guild
@@ -1414,7 +1465,6 @@ async def check(ctx, ign=None, who: discord.Member=None):
 	if data == None:
 		await ctx.send('Invalid IGN.')
 		return
-		
 	playerdb_data = playerdbget(ign)
 	displayname = get_displayname(ign, playerdb_data)
 	uuid = get_uuid(ign, playerdb_data)
@@ -1601,14 +1651,28 @@ async def klb(ctx, kit='pyromancer', mode='sw', amount=10):
 		leaderboard.append(f"{pos}. {msg}")
 	await ctx.send('\n'.join(leaderboard))
 
+@bot.command(name='lb')
+async def lb(ctx, mode='oa', stat='wins', amount=10):
+	mode_clean = mode_names[mode_list.index(mode)] if mode != 'oa' else 'Overall'
+	leaderboard = [f"## Top {amount} {mode_clean} {stat.capitalize()}"]
+	kit_wins_list = get_all_players_stat(stat.lower(), mode.lower())
+	if kit_wins_list == "Kit doesn't exist for the specified mode.":
+		await ctx.send(kit_wins_list)
+		return
+	leaderboard_list = sorted(kit_wins_list, key=lambda x: x[0], reverse=True)[:amount]
+	for pos, (_, msg) in enumerate(leaderboard_list, start=1):
+		leaderboard.append(f"{pos}. {msg}")
+	await ctx.send('\n'.join(leaderboard))
+
 @bot.command(name='dbf')
-async def dbf(ctx, what, *, input):
+async def dbf(ctx, what, *, input=None):
 	if ctx.author.name in ['poki95', 'fancyclown']:
 		if what == 'players':
 			igns_list = [f"{line.strip()}" for line in input.strip().split(' ')]
 			await ctx.reply(f'User `{ctx.author.name}` authorized.\nStarting the addition of `{len(igns_list)}` players to the database.')
 			for ign in igns_list:
 				await ctx.send(add_all_players_stats('ign', ign))
+			await ctx.reply(f"Done! Added `{len(igns_list)}` players to the database.")
 		elif what == 'guild':
 			guild_data = guildget(input, what)['guild']
 			igns_list = guild_data.get('members', {})
@@ -1616,15 +1680,79 @@ async def dbf(ctx, what, *, input):
 				uuid = igns_list[i].get('uuid', '?')
 				if uuid != '?':
 					await ctx.send(add_all_players_stats('uuid', uuid))
-
-		await ctx.reply(f"Done! Added `{len(igns_list)}` players to the database.")
+			await ctx.reply(f"Done! Added `{len(igns_list)}` players to the database.")
+		elif what == 'modes':
+			for mode_alias in mode_list[:19]:
+				mode_db = mode_db_list[mode_list.index(mode_alias)]
+				mode_clean = mode_names[mode_list.index(mode_alias)]
+				try:
+					cursor.execute(
+						"INSERT INTO modes (mode_alias, mode_db, mode_clean) VALUES (?, ?, ?)",
+						(mode_alias, mode_db, mode_clean)
+					)
+					conn.commit()
+					print(f"Added {mode_alias} - {mode_db} - {mode_clean}")
+				except Exception as e:
+					if 'UNIQUE constraint failed' in str(e):
+						already_filled = True
+					else:
+						print(f"error: {e}")
+					break
+			if already_filled:
+				await ctx.reply(f"The database has already been filled with all Duels kits.")
+			else:
+				await ctx.reply(f"Filled the database with all Duels kits.")
+		elif what == 'kits':
+			for kit_alias in kits_sw:
+				mode = 'sw'
+				try:
+					cursor.execute(
+						"INSERT INTO kits (mode, kit) VALUES (?, ?)",
+						(mode, kit_alias)
+					)
+					conn.commit()
+				except Exception as e:
+					if 'UNIQUE constraint failed' in str(e):
+						already_filled = True
+					else:
+						print(f"error: {e}")
+						break
+			for kit_alias in kits_blitz:
+				mode = 'blitz'
+				try:
+					cursor.execute(
+						"INSERT INTO kits (mode, kit) VALUES (?, ?)",
+						(mode, kit_alias)
+					)
+					conn.commit()
+				except Exception as e:
+					if 'UNIQUE constraint failed' in str(e):
+						already_filled = True
+					else:
+						print(f"error: {e}")
+						break
+			for kit_alias in kits_mw:
+				mode = 'mw'
+				try:
+					cursor.execute(
+						"INSERT INTO kits (mode, kit) VALUES (?, ?)",
+						(mode, kit_alias)
+					)
+					conn.commit()
+				except Exception as e:
+					if 'UNIQUE constraint failed' in str(e):
+						already_filled = True
+					else:
+						print(f"error: {e}")
+						break
+			if already_filled:
+				await ctx.reply(f"The database has already been filled with all Duels kits.")
+			else:
+				await ctx.reply(f"Filled the database with all Duels kits.")
+		else:
+			await ctx.send('Choose a setting for the database fill command; `players <players names>`, `guild <guild name>`, `modes`, `kits`')
 	else:
 		await ctx.reply(f'User `{ctx.author.name}` not authorized.')	
-
-'''@bot.command(name='lb')
-async def lb(ctx, mode):
-	html = await getlb(mode)
-	await ctx.send(len(html))'''
 
 @bot.command(name='icons')
 async def icons(ctx):
