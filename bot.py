@@ -685,8 +685,9 @@ def get_all_players_stat(stat, mode, stat_clean):
 				uuid = info[0]
 				stats = info[1]
 				cursor.execute(f"SELECT mc_ign FROM players WHERE mc_uuid = ?", (uuid,))
-				user = cursor.fetchone()[0]
-				print(user)
+				user = cursor.fetchone()
+				if user:
+					user = user[0]
 				list.append((stats, f"{user}: {stats} {mode_clean.capitalize()} {stat}"))
 			return list
 		except Exception as e:
@@ -703,7 +704,9 @@ def get_all_players_stat(stat, mode, stat_clean):
 				uuid = info[0]
 				stats = info[1]
 				cursor.execute(f"SELECT mc_ign FROM players WHERE mc_uuid = ?", (uuid,))
-				user = cursor.fetchone()[0]
+				user = cursor.fetchone()
+				if user:
+					user = user[0]
 				list.append((stats, f"{user}: {stats}h {mode_clean} {stat_clean}"))
 			return list
 		except Exception as e:
