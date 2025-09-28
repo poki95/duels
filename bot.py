@@ -22,7 +22,7 @@ temp_api_key = os.getenv("HYPIXEL_API_KEY")									# update every 3 days
 dev_api_key = os.getenv("DEV_HYPIXEL_API_KEY")
 
 # Ensure a working Hypixel API key is being used
-api_key = temp_api_key
+api_key = dev_api_key
 
 
 
@@ -83,7 +83,18 @@ CREATE TABLE IF NOT EXISTS players_stats (
 	UNIQUE(mc_uuid, mode_id)
 )
 ''')
-
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS players_playtimes (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	mc_uuid TEXT NOT NULL,
+	mode_id INTEGER NOT NULL,
+	playtime REAL,
+	random_q_playtime REAL,
+	ghost_games_playtime REAL,
+	timestamp INTEGER NOT NULL,
+	UNIQUE(mc_uuid, mode_id)
+)
+''')
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS kits (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,8 +194,14 @@ prefix_icons = [
 	'w(ಠ_ಠw)', '(`ಠ_ಠ)`≡T_T', '(*wb*)', "o=('_'Q)", '⚡(-w-⚡)', '-»[*_*]', '[@~@]', # 7
 	'✫', '' # 2
 ]
+lb_stats_list = [
+	'/duels-playtime', '/duels', 'duels-playtime', 'ghost-games-playtime', 'ghost_games_playtime',
+	'random-q-playtime', 'random-q', 'random-queue-playtime', 'random-queue', 'random_q_playtime',
+	'wins', 'losses', 'rounds', 'kills', 'deaths', 'cws', 'bws', 'playtime'
+]
 
-swd_lifetime = ['poki95', 'Monk_Eez', 'MartySnoozeman', 'Lucastevo', 'D3pTTT', 'Scary_J', 'nobuh', 'mutton38', 'ImHomoAf', 'KissMyL']
+
+swd_lifetime = ['poki95', 'Monk_Eez', 'brelom', 'Lucastevo', 'D3pTTT', 'mutton38', 'nobuh', 'Scary_J', 'ImHomoAf', 'KissMyL']
 # Functions
 
 def dataget(ign):
@@ -516,11 +533,39 @@ def add_player(uuid, data, playerdb_data):
 		else:
 			print(f'Add player failed. Reason: {e}')
 
+def update_playtimes(uuid, mode_db, playtime, random_q_playtime, ghost_games_playtime):
+	if mode_db not in mode_db_list:
+		print(f"Invalid mode: '{mode_db}'")
+		return
+	mode_id = get_mode_id(mode_db)
+	mode_alias = mode_list[mode_db_list.index(mode_db)]
+	timestamp = round(time.mktime(time.localtime()))
+	try:
+		cursor.execute(
+			"INSERT INTO players_playtimes (mc_uuid, mode_id, playtime, random_q_playtime, ghost_games_playtime, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+			(uuid, mode_id, playtime, random_q_playtime, ghost_games_playtime, timestamp)
+		)
+		conn.commit()
+	except Exception as e:
+		if str(e) == 'UNIQUE constraint failed: players_playtimes.mc_uuid, players_playtimes.mode_id':
+			cursor.execute(f'''
+			UPDATE players_playtimes
+			SET
+				playtime = ?,
+				random_q_playtime = ?,
+				ghost_games_playtime = ?,
+				timestamp = ?
+			WHERE mode_id = ? AND mc_uuid = ?
+			''', (playtime, random_q_playtime, ghost_games_playtime, timestamp, mode_id, uuid))
+			conn.commit()
+		else:
+			print(f'Update mode stats failed. Reason: {e}')
+	
 def update_mode_stats(uuid, mode_db, wins, losses, rounds_played, kills, deaths, cws, bws):
 	if mode_db not in mode_db_list:
 		print(f"Invalid mode: '{mode_db}'")
 		return
-	mode_id = mode_db_list.index(mode_db) + 1
+	mode_id = get_mode_id(mode_db)
 	mode_alias = mode_list[mode_db_list.index(mode_db)]
 	timestamp = round(time.mktime(time.localtime()))
 	try:
@@ -626,25 +671,44 @@ def get_mode_id(mode):
 		print(f'Get mode id failed. Reason: {e}')
 		return None
 
-def get_all_players_stat(stat, mode):
+def get_all_players_stat(stat, mode, stat_clean):
 	mode_id = get_mode_id(mode)
 	mode_clean = mode_names[mode_list.index(mode)] if mode != 'oa' else 'Overall'
-	sqlite_command = f"SELECT mc_uuid, {stat} FROM players_stats WHERE mode_id = ?"
-	try:
-		cursor.execute(sqlite_command, (mode_id,))
-		result = cursor.fetchall()
-		# print(f"Fetched results: {result}")
-		list = []
-		for info in result:
-			uuid = info[0]
-			stats = info[1]
-			cursor.execute(f"SELECT mc_ign FROM players WHERE mc_uuid = ?", (uuid,))
-			user = cursor.fetchone()[0]
-			list.append((stats, f"{user}: {stats} {mode_clean.capitalize()} {stat}"))
-		return list
-	except Exception as e:
-		raise e
-		return f"error in selecting mc uuid and {stat}: {e}" 
+	if stat in ['wins', 'losses', 'rounds', 'kills', 'deaths', 'cws', 'bws']:
+		sqlite_command = f"SELECT mc_uuid, {stat} FROM players_stats WHERE mode_id = ?"
+		try:
+			cursor.execute(sqlite_command, (mode_id,))
+			result = cursor.fetchall()
+			# print(f"Fetched results: {result}")
+			list = []
+			for info in result:
+				uuid = info[0]
+				stats = info[1]
+				cursor.execute(f"SELECT mc_ign FROM players WHERE mc_uuid = ?", (uuid,))
+				user = cursor.fetchone()[0]
+				print(user)
+				list.append((stats, f"{user}: {stats} {mode_clean.capitalize()} {stat}"))
+			return list
+		except Exception as e:
+			raise e
+			return f"error in selecting mc uuid and {stat}: {e}" 
+	elif stat in ['playtime', 'random_q_playtime', 'ghost_games_playtime']:
+		sqlite_command = f"SELECT mc_uuid, {stat} FROM players_playtimes WHERE mode_id = ?"
+		try:
+			cursor.execute(sqlite_command, (mode_id,))
+			result = cursor.fetchall()
+			# print(f"Fetched results: {result}")
+			list = []
+			for info in result:
+				uuid = info[0]
+				stats = info[1]
+				cursor.execute(f"SELECT mc_ign FROM players WHERE mc_uuid = ?", (uuid,))
+				user = cursor.fetchone()[0]
+				list.append((stats, f"{user}: {stats}h {mode_clean} {stat_clean}"))
+			return list
+		except Exception as e:
+			raise e
+			return f"error in selecting mc uuid and {stat}: {e}" 
 
 def get_amount_of_rows(table):
 	sqlite_command = f"SELECT count(*) FROM {table}"
@@ -669,8 +733,21 @@ def add_all_players_stats(uuid_or_ign, info):
 		add_player(uuid, data, playerdb_data)
 		duels_data = get_duels_data(data)
 		modes = mode_db_list 
-		for mode_db in modes:
+		random_q_playtime_list = []
+		ghost_games_playtime_list = []
+		playtime_list = []
+		for mode_db in modes[::-1]:
 			win_count, win_s, loss_count, loss_es, games_played, kill_count, kill_s, death_count, death_s, cws, bws = get_duels_stats(mode_db, duels_data)
+			if mode_db != 'all_modes':
+				random_q_playtime = (win_count + loss_count)/gph[mode_db_list.index(mode_db)-1]
+				random_q_playtime_list.append(random_q_playtime)
+				ghost_games_playtime = (games_played - win_count - loss_count)/duels_gph[mode_db_list.index(mode_db)-1]
+				ghost_games_playtime_list.append(ghost_games_playtime)
+				playtime = round(random_q_playtime + ghost_games_playtime, 1)
+				playtime_list.append(playtime)
+				update_playtimes(uuid, mode_db, playtime, round(random_q_playtime, 2), round(ghost_games_playtime, 2))
+			else:
+				update_playtimes(uuid, mode_db, round(sum(playtime_list), 2), round(sum(random_q_playtime_list), 2), round(sum(ghost_games_playtime_list), 2))
 			update_mode_stats(uuid, mode_db, win_count, loss_count, games_played, kill_count, death_count, cws, bws) # UPDATE MODE STATS IN DB
 		for kit in kits_sw:
 			wins = get_kit_wins('sw', kit, duels_data)
@@ -809,7 +886,7 @@ def delete_guild_role_mode(guild):
 
 @bot.event
 async def on_ready():
-    print(f'{bot.user.name} is ready for use! ({bot.user.id})')
+	print(f'{bot.user.name} is ready for use! ({bot.user.id})')
 	
 commands_logs = 'commands_logs.json'
 if not os.path.exists(commands_logs):
@@ -845,10 +922,12 @@ async def on_command_error(ctx, error):
 @bot.command(name='ping')
 async def ping(ctx, amount=1):
 	amount_of_players = get_amount_of_rows('players')[0]
-	amount_of_players_stats = get_amount_of_rows('players_stats')[0]
-	amount_of_players_kits_stats = get_amount_of_rows('players_kits_stats')[0]
+	amount_of_linked_users = get_amount_of_rows('linked_users')[0]
+	with open('commands_logs.json', 'r') as file:
+		amount_of_commands_sent = sum(1 for line in file)
 	await ctx.reply(f'''
-Players: `{amount_of_players}` | Linked players: `{amount_of_linked_players}`
+Pong! 🏓 <t:{round(time.mktime(time.localtime()))}:T>
+Players: `{amount_of_players}` | Linked users: `{amount_of_linked_users}` | Commands sent: `{amount_of_commands_sent}`
 ''')
 
 @bot.command(name='h')
@@ -933,9 +1012,15 @@ async def h(ctx, argument=None):
 
 ## New command
 
-- `!klb` -> Check Kit Leaderboards!
+- `!lb` -> Check Various Leaderboards! (wins, losses, rounds, kills, deaths, cws, bws, playtime, /duels playtime, random queue playtime...)
 
-- `!rs` & `!check` -> Assign automatic roles based on division title in a given mode!
+- `!ping` -> Check out various stats about the bot!
+
+## Bug fixes and improvements
+
+- `!check` -> Fixed!
+
+- Better API key stability! (hopefully)
 
 
 	Feedback is more than welcome! Contact `poki95` on Discord.
@@ -987,8 +1072,12 @@ async def d(ctx, ign=None, mode='all'):
 	if displayname.count('_') >= 2 and displayname.count('__') != 1:
 		displayname = f'`{displayname}`'
 
-	duels_data = get_duels_data(data)
-	
+	try:
+		duels_data = get_duels_data(data)
+	except KeyError:
+		await ctx.send('Error fetching duels data. Please try again later.')
+		return
+
 	if duels_data.get("active_prefix_icon", '') != '':
 		equipped_icon = prefix_icons[prefix_icons_db.index(duels_data.get("active_prefix_icon", '').replace("prefix_icon_", ''))]
 	equipped_color = duels_data.get("active_prefix_scheme", '')
@@ -1004,7 +1093,9 @@ async def d(ctx, ign=None, mode='all'):
 	
 	modes = mode_db_list # if mode == 'all' else [mode_db_list[mode_list.index(mode)]]
 	wins_list = []
-	overall_playtime = 0
+	playtime_list = []
+	random_q_playtime_list = []
+	ghost_games_playtime_list = []
 	for mode_db in modes:
 		win_count, win_s, loss_count, loss_es, games_played, kill_count, kill_s, death_count, death_s, cws, bws = get_duels_stats(mode_db, duels_data)
 
@@ -1015,10 +1106,17 @@ async def d(ctx, ign=None, mode='all'):
 		ghost_games_playtime = (games_played - win_count - loss_count)/duels_gph[mode_db_list.index(mode_db)-1]
 		playtime = round(random_q_playtime + ghost_games_playtime, 1)
 
+		
 		update_mode_stats(uuid, mode_db, win_count, loss_count, games_played, kill_count, death_count, cws, bws) # UPDATE MODE STATS IN DB
 		mode_clean = mode_names[mode_db_list.index(mode_db)]
-		if mode_db != 'all_modes':			
-			overall_playtime += playtime
+		if mode_db != 'all_modes':		
+
+			update_playtimes(uuid, mode_db, playtime, round(random_q_playtime, 2), round(ghost_games_playtime, 2))
+
+			random_q_playtime_list.append(random_q_playtime)
+			ghost_games_playtime_list.append(ghost_games_playtime)
+			playtime_list.append(playtime)
+
 			if mode_db_list_long[mode_db_list.index(mode_db)] in equipped_title:
 				current_title = f'{equipped_icon} {mode_clean} {oa_division if mode_db == 'all_modes' else division}'
 			if mode_db == 'bedwars':
@@ -1046,15 +1144,14 @@ async def d(ctx, ign=None, mode='all'):
 	if displayname in swd_lifetime:
 		if equipped_icon == '#???' and 'SkyWars' in current_title:
 			current_title = current_title.replace('#???', f"#{str(swd_lifetime.index(displayname)+1)}")
-	#		if displayname == 'poki95':
-	#			current_title = '#1 SkyWars ASCENDED II'
 		
 	if mode == 'all':	
 		if overall_win_count >= 100000 and len(current_title) > 0:
 			current_title = '**' + current_title + '**'	
-		message_lines = [f"{sub(' +', ' ', current_title)} {get_rank(ign, data)}{displayname}\n{format_number(overall_win_count)} Overall {win_s} - {oa_division} (~{round(overall_playtime)}h)"]
+		message_lines = [f"{sub(' +', ' ', current_title)} {get_rank(ign, data)}{displayname}\n{format_number(overall_win_count)} Overall {win_s} - {oa_division} (~{round(sum(playtime_list))}h)"]
 		message_lines.extend(msg for _, msg in sorted_modes)
 		await ctx.send('\n'.join(message_lines))
+		update_playtimes(uuid, 'all_modes', round(sum(playtime_list), 1), round(sum(random_q_playtime_list), 2), round(sum(ghost_games_playtime_list), 2))
 
 	else:
 		mode_db = mode_db_list[mode_list.index(mode.lower())]
@@ -1083,13 +1180,14 @@ async def d(ctx, ign=None, mode='all'):
 			{format_number(kill_count)} {kill_s} - {format_number(death_count)} {death_s} - {KDR} KDR
 			{format_number(games_played)} games played - {cws} CWS - {bws} BWS""")
 		else:
-			message = sub(' +', ' ', f"""✫ {mode_clean} {oa_division if mode == 'oa' else division} {get_rank(ign, data)}{displayname} (~{playtime if mode != 'oa' else round(overall_playtime, 1)}h)
+			message = sub(' +', ' ', f"""✫ {mode_clean} {oa_division if mode == 'oa' else division} {get_rank(ign, data)}{displayname} (~{playtime if mode != 'oa' else round(sum(playtime_list), 1)}h)
 			{format_number(win_count)} {win_s} - {format_number(loss_count)} {loss_es} - {WLR} WLR
 			{format_number(kill_count)} {kill_s} - {format_number(death_count)} {death_s} - {KDR} KDR
 			{format_number(ghost_games)} ghost games - {cws} CWS - {bws} BWS""")
 		await ctx.send(message)
 
 	add_player(uuid, data, playerdb_data)
+
 @bot.command(name='kit')
 async def kit(ctx, ign='None', mode='sw', kit='top10'):
 	member = ctx.author
@@ -1130,7 +1228,11 @@ async def kit(ctx, ign='None', mode='sw', kit='top10'):
 	uuid = get_uuid(ign, playerdb_data)
 
 
-	duels_data = get_duels_data(data)
+	try:
+		duels_data = get_duels_data(data)
+	except KeyError:
+		await ctx.send('Error fetching duels data. Please try again later.')
+		return
 
 	if mode.lower() == 'sw':
 		sw_wins = get_mode_stat('sw', 'wins', duels_data)
@@ -1139,7 +1241,7 @@ async def kit(ctx, ign='None', mode='sw', kit='top10'):
 			kit_wins_list = []
 			for swd_kit in kits_sw:
 				wins = get_kit_wins('sw', swd_kit, duels_data)
-				update_kit_stats(uuid, kit, wins, mode.lower())
+				update_kit_stats(uuid, swd_kit, wins, mode.lower())
 				if wins > 0:
 					win_s = "win" if wins == 1 else "wins"
 					percentage = round((wins/sw_wins)*100, 2) if sw_wins > 0 else 0.0
@@ -1157,7 +1259,7 @@ async def kit(ctx, ign='None', mode='sw', kit='top10'):
 			kit_wins_list = []
 			for swd_kit in kits:
 				wins = get_kit_wins('sw', swd_kit, duels_data)
-				update_kit_stats(uuid, kit, wins, mode.lower())
+				update_kit_stats(uuid, swd_kit, wins, mode.lower())
 				if wins > 0:
 					win_s = "win" if wins == 1 else "wins"
 					kit_wins_list.append((wins, f"{wins} {swd_kit.capitalize()} {win_s}"))
@@ -1447,7 +1549,7 @@ async def rs(ctx, mode=None, hoist=True):
 
 @bot.command(name='check')
 async def check(ctx, ign=None, who: discord.Member=None):
-	if ctx.author.name in ['flowstate0237', 'catering', 'gnjhbfbdgh', 'mcdtoogood', 'memorises', 'flame517.']:
+	if ctx.author.name in ['flowstate0237', 'catering', 'gnjhbfbdgh', 'mcdtoogood', 'memorises', 'flame517.', '.weebachu', 'superkid323']:
 		await ctx.reply("YOU HAVE BEEN TOO NAUGHTY TO USE THIS!!!!!")
 		return
 	guild = ctx.guild
@@ -1468,7 +1570,11 @@ async def check(ctx, ign=None, who: discord.Member=None):
 	playerdb_data = playerdbget(ign)
 	displayname = get_displayname(ign, playerdb_data)
 	uuid = get_uuid(ign, playerdb_data)
-	duels_data = get_duels_data(data)
+	try:
+		duels_data = get_duels_data(data)
+	except KeyError:
+		await ctx.send('Error fetching duels data. Please try again later.')
+		return
 	win_count = get_mode_stat(mode, 'wins', duels_data)
 
 	is_oa = (mode == 'all_modes')
@@ -1585,7 +1691,7 @@ async def dbs(ctx, table=None):
 		await ctx.send("Unauthorized.")
 
 @bot.command(name='apikey')
-async def cak(ctx, mode=None, key=None):
+async def apikey(ctx, mode=None, key=None):
 	if ctx.author.name == 'poki95':
 		global api_key
 		if not mode:
@@ -1595,15 +1701,17 @@ async def cak(ctx, mode=None, key=None):
 				await ctx.reply('Temporary API key active.')
 		elif mode == 'check':
 			if api_key != dev_api_key:
-				try:
-					r = requests.get(f'https://api.hypixel.net/player?key={api_key}&uuid=3e92f52f-03e8-4529-be93-353e3c360c63').json()["player"]
-					await ctx.reply('Permanent API key activated.')
-					return
-				except KeyError:
-					api_key = dev_api_key
-					print('Temp API key expired, switched to dev API key.')
-					await ctx.reply('Permanent API key activated.')
-					return
+				while True:
+					try:
+						r = requests.get(f'https://api.hypixel.net/player?key={api_key}&uuid=3e92f52f-03e8-4529-be93-353e3c360c63').json()["player"]
+						await ctx.reply('Temporary API key still valid.')
+					except KeyError:
+						api_key = dev_api_key
+						print('The temporary API key expired, switched to the permanent API key.')
+						await ctx.reply('Permanent API key activated.')
+						return
+						break
+					time.sleep(600)
 			else:
 				await ctx.reply('Permanent API key already active.')
 		elif mode == 'set':
@@ -1642,34 +1750,49 @@ async def klb(ctx, kit='pyromancer', mode='sw', amount=10):
 	if '-' in kit:
 		kit = kit.replace('-', ' ')
 	leaderboard = [f"## Top {amount} {mode.capitalize()} {kit.capitalize()} kit wins"]
-	kit_wins_list = get_all_players_with_kit_wins(kit.lower(), mode.lower())
-	if kit_wins_list == "Kit doesn't exist for the specified mode.":
-		await ctx.send(kit_wins_list)
+	players_with_kit_wins = get_all_players_with_kit_wins(kit.lower(), mode.lower())
+	if players_with_kit_wins == "Kit doesn't exist for the specified mode.":
+		await ctx.send(players_with_kit_wins)
 		return
-	leaderboard_list = sorted(kit_wins_list, key=lambda x: x[0], reverse=True)[:amount]
+	leaderboard_list = sorted(players_with_kit_wins, key=lambda x: x[0], reverse=True)[:amount]
 	for pos, (_, msg) in enumerate(leaderboard_list, start=1):
 		leaderboard.append(f"{pos}. {msg}")
 	await ctx.send('\n'.join(leaderboard))
 
 @bot.command(name='lb')
 async def lb(ctx, mode='oa', stat='wins', amount=10):
-	mode_clean = mode_names[mode_list.index(mode)] if mode != 'oa' else 'Overall'
-	leaderboard = [f"## Top {amount} {mode_clean} {stat.capitalize()}"]
-	kit_wins_list = get_all_players_stat(stat.lower(), mode.lower())
-	if kit_wins_list == "Kit doesn't exist for the specified mode.":
-		await ctx.send(kit_wins_list)
+	if mode in mode_list[:19]:
+		mode_clean = mode_names[mode_list.index(mode)] if mode != 'oa' else 'Overall'
+	else:
+		await ctx.send(f'Invalid mode.\n-# Choose from: {', '.join(mode_list[:19])}')
 		return
-	leaderboard_list = sorted(kit_wins_list, key=lambda x: x[0], reverse=True)[:amount]
+	if amount > 50:
+		await ctx.send(f'Too many entries.\n-# Max: 50')
+		return
+	if stat not in lb_stats_list:
+		await ctx.send(f'Invalid statistic.\n-# Choose from: {', '.join(lb_stats_list)}')
+		return
+	elif stat in ['/duels-playtime', '/duels', 'duels-playtime', 'ghost-games-playtime', 'ghost_games_playtime']:
+		stat = 'ghost_games_playtime'
+		stat_clean = '/duels playtime'
+	elif stat in ['random-q-playtime', 'random-q', 'random-queue-playtime', 'random-queue', 'random_q_playtime']:
+		stat = 'random_q_playtime'
+		stat_clean = 'Random queue playtime'
+	else:
+		stat_clean = stat.capitalize()
+	leaderboard = [f"## Top {amount} {mode_clean} {stat_clean}"]
+	players_with_stats = get_all_players_stat(stat.lower(), mode.lower(), stat_clean)
+	leaderboard_list = sorted(players_with_stats, key=lambda x: x[0], reverse=True)[:amount]
 	for pos, (_, msg) in enumerate(leaderboard_list, start=1):
 		leaderboard.append(f"{pos}. {msg}")
 	await ctx.send('\n'.join(leaderboard))
 
-@bot.command(name='dbf')
-async def dbf(ctx, what, *, input=None):
+@bot.command(name='db')
+async def db(ctx, what, *, input=None):
 	if ctx.author.name in ['poki95', 'fancyclown']:
 		if what == 'players':
 			igns_list = [f"{line.strip()}" for line in input.strip().split(' ')]
-			await ctx.reply(f'User `{ctx.author.name}` authorized.\nStarting the addition of `{len(igns_list)}` players to the database.')
+			await ctx.reply(f'User `{ctx.author.name}` authorized.\n# Starting the addition of `{len(igns_list)}` players to the database.')
 			for ign in igns_list:
 				await ctx.send(add_all_players_stats('ign', ign))
 			await ctx.reply(f"Done! Added `{len(igns_list)}` players to the database.")
@@ -1749,6 +1872,23 @@ async def dbf(ctx, what, *, input=None):
 				await ctx.reply(f"The database has already been filled with all Duels kits.")
 			else:
 				await ctx.reply(f"Filled the database with all Duels kits.")
+		elif what == 'refresh':
+			try:
+				cursor.execute(
+					"SELECT mc_uuid FROM players"
+				)
+				result = cursor.fetchall()
+				if result is None:
+					await ctx.send(f'Could not fetch players')
+			except Exception as e:
+				print(f'Get all players failed. Reason: {e}')	
+			print(result)
+			for uuid_tuple in result:
+				uuid = uuid_tuple[0]
+				print(f'Refreshing {uuid}')
+				print(add_all_players_stats('uuid', uuid))
+			await ctx.send(f'Done! Refreshed `{get_amount_of_rows('players')[0]}` players.')
+
 		else:
 			await ctx.send('Choose a setting for the database fill command; `players <players names>`, `guild <guild name>`, `modes`, `kits`')
 	else:
